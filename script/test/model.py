@@ -96,7 +96,11 @@ class Model:
         print("-" * 40)
 
     def _setup_device(self):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #* This is needed if u run on a local device or if u have problems with the /tmp/gpu_lock/ directory
+       # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        from gpu_selector import get_device
+        self.device = get_device()
         reset_memory_info(self.device)
         print(f"Selected device: {self.device}.")
 

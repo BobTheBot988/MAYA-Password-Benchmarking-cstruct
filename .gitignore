@@ -20,3 +20,7 @@ parameters/*
 models/PassGPT/tokenizer/*
 
 script/metrics/utils/*.txt
+guesses 
+*.cpp
+*.pyx
+setup.py

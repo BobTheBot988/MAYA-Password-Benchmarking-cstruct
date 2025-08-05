@@ -7,17 +7,21 @@ from tqdm import tqdm
 import heapq
 import gc
 import gzip
+import sys
 
 from script.test.model import Model
 
 from models.FLA.architecture import LSTM
 from models.FLA.guesser import Guesser
 from models.FLA.fla_utils.dataloader import *
-
+from models.FLA.heapitem import HeapItem
+from models.FLA.mem_utils import kill_if_low_memory,get_memory_usage
 
 def get_lower_probability_threshold(n_samples):
     n_samples = int(n_samples)
-    if n_samples <= 10 ** 6:
+    if n_samples <= 10 ** 5: 
+        return .000001
+    elif n_samples <= 10 ** 6:
         return 0.00000001
     elif n_samples <= 10 ** 7:
         return 0.000000001
@@ -130,39 +134,65 @@ class FLA(Model):
         }
         return eval_dict
 
-    def sample(self, evaluation_batch_size, eval_dict):
-        lower_probability_threshold = get_lower_probability_threshold(eval_dict['n_samples'])
+    def sample(self, evaluation_batch_size, eval_dict)->set[str]:
+        lower_probability_threshold:float = get_lower_probability_threshold(eval_dict['n_samples'])
         guesser = Guesser(model=self.model, params=self.params, data=self.data,
                           lower_probability_threshold=lower_probability_threshold, output_file=eval_dict['output_file'],
                           device=self.device)
-        n_gen = guesser.complete_guessing()
+        n_gen:int = guesser.complete_guessing()
 
         print(f"[I] - Generated {n_gen} passwords")
 
-        min_heap_n_most_prob = []
+        min_heap_n_most_prob:list[type] = []
+        # Optimize the algorithm 
+        
+        memory_heap:int = 0
 
         with gzip.open(eval_dict['output_file'], "rt") as f_out:
-            for line in f_out:
+            initial_memory:float = get_memory_usage()
+            print(f"Memory Before creating  heap ==>{initial_memory:.2f} MB\n")
+            for i,line in enumerate(f_out):
+                if i%100_000 == 0:
+                    kill_if_low_memory(threshold_percent=95) 
+
                 line = line.split(" ")
+
                 if len(line) != 2:
                     continue
 
-                password, prob = line[0].replace("~", ""), float(line[1])
-
+                password, prob= line[0].replace("~", ""), float(line[1])
+                # new method 
                 if len(min_heap_n_most_prob) < eval_dict['n_samples']:
-                    heapq.heappush(min_heap_n_most_prob, (prob, password))
-                else:
-                    if prob > min_heap_n_most_prob[0][0]:
-                        heapq.heappushpop(min_heap_n_most_prob, (prob, password))
+                    myItem:HeapItem = HeapItem(prob, password,len(password))
+                    heapq.heappush(min_heap_n_most_prob, myItem)
+                    memory_heap+= sys.getsizeof(myItem)
 
-        n_most_prob_psw = {password for prob, password in heapq.nlargest(eval_dict['n_samples'], min_heap_n_most_prob)}
+                elif prob > min_heap_n_most_prob[0].prob: 
+                    myItem:HeapItem = HeapItem(prob, password,len(password))
+                    heapq.heappushpop(min_heap_n_most_prob, myItem)
+                    memory_heap+= sys.getsizeof(myItem)
+
+            current_memory:float = get_memory_usage()
+
+        size_of_heap:float = sys.getsizeof(min_heap_n_most_prob)
+        
+        size_of_heap+=memory_heap
+         
+        print(f"""Memory After the heap is created ==> {current_memory:.2f} MB\nMemory Of Heap ==> {size_of_heap/1000/1000:.2f}MB\nMemory Used During Creation ==> {current_memory-initial_memory:.2f}MB\n""")
+
+        n_most_prob_psw:set[str] = set()
+        
+        for hi in heapq.nlargest(eval_dict['n_samples'], min_heap_n_most_prob):
+            n_most_prob_psw.add(hi.password_string)
+            del hi 
 
         return n_most_prob_psw
+        # when generating return set()
 
     def guessing_strategy(self, evaluation_batch_size, eval_dict):
         pass
 
     def post_sampling(self, eval_dict):
         gc.collect()
-        os.remove(eval_dict['output_file'])
+        #os.remove(eval_dict['output_file'])
         pass
