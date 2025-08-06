@@ -1,0 +1,7 @@
+/home/rdirosa/myMaya/MAYA-Password-Benchmarking-cstruct/script/plotters/various_plot.py:33: UserWarning: Attempting to set identical low and high xlims makes transformation singular; automatically expanding.
+  plt.xlim(x_lim)
+Starting...
+Running test rq1
+Starting fla:
+Redirecting stderr to results/rq1/fla/libero/all-12-100-80/10000000/089cd10612b874833102d6d25ab34970/log.err.
+Redirecting stdout to results/rq1/fla/libero/all-12-100-80/10000000/089cd10612b874833102d6d25ab34970/log.out

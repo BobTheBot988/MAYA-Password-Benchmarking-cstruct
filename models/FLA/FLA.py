@@ -15,8 +15,9 @@ from models.FLA.architecture import LSTM
 from models.FLA.guesser import Guesser
 from models.FLA.fla_utils.dataloader import *
 from models.FLA.heapitem import HeapItem
-from models.FLA.mem_utils import kill_if_low_memory,get_memory_usage
+from models.FLA.mem_utils import kill_if_low_memory,get_memory_usage,get_memory_usage_byte
 
+#TODO implement dictionary for maximum python compatibility  
 def get_lower_probability_threshold(n_samples):
     n_samples = int(n_samples)
     if n_samples <= 10 ** 5: 
@@ -163,28 +164,36 @@ class FLA(Model):
                 password, prob= line[0].replace("~", ""), float(line[1])
                 # new method 
                 if len(min_heap_n_most_prob) < eval_dict['n_samples']:
-                    myItem:HeapItem = HeapItem(prob, password,len(password))
-                    heapq.heappush(min_heap_n_most_prob, myItem)
-                    memory_heap+= sys.getsizeof(myItem)
-
+                    item = HeapItem(prob,password,len(password))
+                    heapq.heappush(min_heap_n_most_prob, item)
+                    memory_heap+=sys.getsizeof(item)
                 elif prob > min_heap_n_most_prob[0].prob: 
-                    myItem:HeapItem = HeapItem(prob, password,len(password))
-                    heapq.heappushpop(min_heap_n_most_prob, myItem)
-                    memory_heap+= sys.getsizeof(myItem)
+                    item = HeapItem(prob,password,len(password))
+                    heapq.heappushpop(min_heap_n_most_prob,item)
+                    memory_heap+=sys.getsizeof(item)
 
             current_memory:float = get_memory_usage()
 
         size_of_heap:float = sys.getsizeof(min_heap_n_most_prob)
-        
-        size_of_heap+=memory_heap
+        print(f"Size of Heap ==>{size_of_heap}")
+        size_of_heap+= memory_heap
+        from pympler import asizeof
+
+        total_size = asizeof.asizeof(min_heap_n_most_prob)  # measures Python overhead
+        manual_buffer_total = sum(item.memory_size()['password_buffer'] for item in min_heap_n_most_prob)
+
+        total_heap_size = total_size + manual_buffer_total
+        print(f"Total heap memory including buffers ==> {total_heap_size / 1_000_000:.2f} MB")
+
          
         print(f"""Memory After the heap is created ==> {current_memory:.2f} MB\nMemory Of Heap ==> {size_of_heap/1000/1000:.2f}MB\nMemory Used During Creation ==> {current_memory-initial_memory:.2f}MB\n""")
-
+        print(f"Size of HeapItem object:{min_heap_n_most_prob[0].memory_size()["object_size"]},Size of HeapItem pwd_buffer:{min_heap_n_most_prob[0].memory_size()["password_buffer"]},\nSize of HeapItem total_size:{min_heap_n_most_prob[0].memory_size()["total"]},\n")
+        print(f"Number of items in heap ==> {len(min_heap_n_most_prob)}\n")
         n_most_prob_psw:set[str] = set()
         
         for hi in heapq.nlargest(eval_dict['n_samples'], min_heap_n_most_prob):
             n_most_prob_psw.add(hi.password_string)
-            del hi 
+            del hi      # engages __dealloc__
 
         return n_most_prob_psw
         # when generating return set()
