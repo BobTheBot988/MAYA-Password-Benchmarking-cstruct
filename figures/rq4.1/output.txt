@@ -1,0 +1,26 @@
+\begin{tabular}{l *{24}{c}}
+    \toprule
+    \multirow{2}{*}{\textbf{Train / Test}} & \multicolumn{3}{c}{\textbf{fla}} & \multicolumn{3}{c}{\textbf{omen}} & \multicolumn{3}{c}{\textbf{passflow}} & \multicolumn{3}{c}{\textbf{passgan}} & \multicolumn{3}{c}{\textbf{passgpt}} & \multicolumn{3}{c}{\textbf{pcfg}} & \multicolumn{3}{c}{\textbf{plrgan}} & \multicolumn{3}{c}{\textbf{vgpt2}} \\
+    \cmidrule(lr){2-4} \cmidrule(lr){5-7} \cmidrule(lr){8-10} \cmidrule(lr){11-13} \cmidrule(lr){14-16} \cmidrule(lr){17-19} \cmidrule(lr){20-22} \cmidrule(lr){23-25}
+     & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} \\
+    \midrule
+    000webhost & None & 22.81 & 26.72 & None & 7.55 & 9.63 & None & 6.58 & 11.44 & None & 2.27 & 4.10 & None & 10.41 & 13.77 & None & 20.30 & 23.93 & None & 3.70 & 5.56 & None & 1.87 & 3.15 \\
+    linkedin & 19.01 & None & 45.09 & 7.53 & None & 17.90 & 1.93 & None & 6.61 & 1.80 & None & 6.51 & 16.90 & None & 36.21 & 23.99 & None & 40.30 & 3.65 & None & 8.77 & 2.95 & None & 11.48 \\
+    rockyou & 17.31 & 31.53 & None & 8.10 & 17.60 & None & 3.55 & 8.16 & None & 1.59 & 4.72 & None & 13.15 & 22.08 & None & 20.75 & 27.17 & None & 4.65 & 8.77 & None & 2.84 & 6.93 & None \\
+    \bottomrule
+\end{tabular}
+
+
+\begin{tabular}{l *{24}{c}}
+    \toprule
+    \multirow{2}{*}{\textbf{Train / Test}} & \multicolumn{3}{c}{\textbf{fla}} & \multicolumn{3}{c}{\textbf{omen}} & \multicolumn{3}{c}{\textbf{passflow}} & \multicolumn{3}{c}{\textbf{passgan}} & \multicolumn{3}{c}{\textbf{passgpt}} & \multicolumn{3}{c}{\textbf{pcfg}} & \multicolumn{3}{c}{\textbf{plrgan}} & \multicolumn{3}{c}{\textbf{vgpt2}} \\
+    \cmidrule(lr){2-4} \cmidrule(lr){5-7} \cmidrule(lr){8-10} \cmidrule(lr){11-13} \cmidrule(lr){14-16} \cmidrule(lr){17-19} \cmidrule(lr){20-22} \cmidrule(lr){23-25}
+     & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} & {\textbf{000webhost}} & {\textbf{linkedin}} & {\textbf{rockyou}} \\
+    \midrule
+    000webhost & None & 22.81 & 26.72 & None & 7.55 & 9.63 & None & 6.58 & 11.44 & None & 2.27 & 4.10 & None & 10.41 & 13.77 & None & 20.30 & 23.93 & None & 3.70 & 5.56 & None & 1.87 & 3.15 \\
+    linkedin & 19.01 & None & 45.09 & 7.53 & None & 17.90 & 1.93 & None & 6.61 & 1.80 & None & 6.51 & 16.90 & None & 36.21 & 23.99 & None & 40.30 & 3.65 & None & 8.77 & 2.95 & None & 11.48 \\
+    rockyou & 17.31 & 31.53 & None & 8.10 & 17.60 & None & 3.55 & 8.16 & None & 1.59 & 4.72 & None & 13.15 & 22.08 & None & 20.75 & 27.17 & None & 4.65 & 8.77 & None & 2.84 & 6.93 & None \\
+    \bottomrule
+\end{tabular}
+
+

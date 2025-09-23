@@ -1,0 +1,13 @@
+model,train-dataset,test-settings,test-hash,test-size,n_samples,matches,match_percentage
+omen,000webhost,all-12-rockyou-100-80,NONE,NONE,500000000,1280167,9.63%
+omen,rockyou,all-12-000webhost-100-80,NONE,NONE,500000000,688344,8.1%
+omen,linkedin,all-12-rockyou-100-80,NONE,NONE,500000000,2380806,17.9%
+omen,linkedin,all-12-000webhost-100-80,NONE,NONE,500000000,639943,7.53%
+omen,rockyou,all-12-linkedin-100-80,NONE,NONE,500000000,8776569,17.6%
+omen,000webhost,all-12-linkedin-100-80,NONE,NONE,500000000,3763119,7.55%
+pcfg,000webhost,all-12-rockyou-100-80,NONE,NONE,500000000,3182097,23.93%
+pcfg,rockyou,all-12-000webhost-100-80,NONE,NONE,500000000,1763495,20.75%
+pcfg,000webhost,all-12-linkedin-100-80,NONE,NONE,500000000,10123537,20.3%
+pcfg,linkedin,all-12-000webhost-100-80,NONE,NONE,500000000,2038565,23.99%
+pcfg,linkedin,all-12-rockyou-100-80,NONE,NONE,500000000,5359549,40.3%
+pcfg,rockyou,all-12-linkedin-100-80,NONE,NONE,500000000,13551925,27.17%
