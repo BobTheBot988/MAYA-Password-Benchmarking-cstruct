@@ -68,6 +68,8 @@ class RQ5_3Plotter(Plotter):
         self.data = output_data
 
     def _plot_data(self):
+        self._read_csv('script/plotters/src/rq5.3-baseline.csv')
+
         self._compute_weighted_average()
 
         header = " & "

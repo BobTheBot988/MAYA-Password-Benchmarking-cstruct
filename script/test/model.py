@@ -3,6 +3,7 @@ import os
 import gzip
 import time
 import pickle
+from typing import Generator, Literal
 from tqdm import tqdm
 import shutil
 import torch
@@ -10,8 +11,8 @@ import glob
 
 from datetime import timedelta
 from script.utils.file_operations import redirect_stdout, redirect_stderr, write_to_csv
-from script.utils.memory_usage import reset_memory_info, print_memory_info
 from script.utils.fast_eval import check_skip_generation, sub_sample, fast_eval
+from script.utils.memory_watcher import MemoryWatcher
 from script.config.config import read_config
 
 
@@ -19,10 +20,14 @@ class Model:
     def __init__(self, s):
         self.settings = s
 
+        self._setup_device()
         self._parse_settings()
         self._prepare_paths()
         self._setup_logging()
-        self._setup_device()
+
+        self.memory_watcher = MemoryWatcher(
+            output_file=self.path_to_output_file, device=self.device
+        )
 
         # Dictionary containing the model parameters loaded from the .yaml config file.
         self.params = read_config(self.path_to_config_file)
@@ -56,7 +61,9 @@ class Model:
         self.test_hash = self.settings["test_hash"]
         self.max_length = int(self.settings["max_length"])
         self.n_samples = max(self.settings["n_samples"])
-        self.thresholds = sorted([s for s in self.settings["n_samples"] if s != self.n_samples])
+        self.thresholds = sorted(
+            [s for s in self.settings["n_samples"] if s != self.n_samples]
+        )
 
         # --- Model related settings ---
         self.model_name = str(self.settings["model_name"])
@@ -70,11 +77,15 @@ class Model:
 
         # --- Model related paths ---
         self.path_to_config_file = self.settings["config_file"]
-        self.path_to_checkpoint_dir = os.path.join("checkpoints", self.model_name, self.train_hash)
+        self.path_to_checkpoint_dir = os.path.join(
+            "checkpoints", self.model_name, self.train_hash
+        )
         os.makedirs(self.path_to_checkpoint_dir, exist_ok=True)
 
         # --- Output related paths ---
-        self.path_to_results_dir = os.path.join(self.settings["output_path"], self.settings["test_hash"])
+        self.path_to_results_dir = os.path.join(
+            self.settings["output_path"], self.settings["test_hash"]
+        )
         os.makedirs(self.path_to_results_dir, exist_ok=True)
         self.path_to_output_file = os.path.join(self.path_to_results_dir, "log.out")
         self.path_to_error_file = os.path.join(self.path_to_results_dir, "log.err")
@@ -96,12 +107,7 @@ class Model:
         print("-" * 40)
 
     def _setup_device(self):
-        #* This is needed if u run on a local device or if u have problems with the /tmp/gpu_lock/ directory
-       # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        from gpu_selector import get_device
-        self.device = get_device()
-        reset_memory_info(self.device)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Selected device: {self.device}.")
 
     def _setup_checkpoint(self):
@@ -109,7 +115,11 @@ class Model:
         self.checkpoint_name = f"checkpoint{next_id}.pt"
 
         if self.path_to_checkpoint:
-            self.checkpoint_name = use_specified_checkpoint(self.path_to_checkpoint, self.path_to_checkpoint_dir, self.checkpoint_name)
+            self.checkpoint_name = use_specified_checkpoint(
+                self.path_to_checkpoint,
+                self.path_to_checkpoint_dir,
+                self.checkpoint_name,
+            )
             print(f"[I] - Using checkpoint: {self.path_to_checkpoint}")
         elif self.autoload and latest_checkpoint:
             self.checkpoint_name = latest_checkpoint
@@ -122,7 +132,11 @@ class Model:
 
         if not self.overwrite:
             if os.path.isfile(self.path_to_guesses_file):
-                output = fast_eval(self.path_to_test_dataset, n_samples_to_evaluate, self.path_to_guesses_file)
+                output = fast_eval(
+                    self.path_to_test_dataset,
+                    n_samples_to_evaluate,
+                    self.path_to_guesses_file,
+                )
                 self.save_stats(output)
                 return True
 
@@ -136,7 +150,9 @@ class Model:
             sub_sample(sub_samples_from_file, n_samples_to_evaluate)
 
         if guesses_file:
-            output = fast_eval(self.path_to_test_dataset, n_samples_to_evaluate, guesses_file)
+            output = fast_eval(
+                self.path_to_test_dataset, n_samples_to_evaluate, guesses_file
+            )
             self.save_stats(output)
 
         return sub_samples_from_file or guesses_file
@@ -152,24 +168,29 @@ class Model:
 
         self.start_train(self.checkpoint_name)
 
-        start_eval_time = time.time()
         matches, match_percentage, test_size = self.start_eval(self.checkpoint_name)
-        end_eval_time = time.time()
-        delta = timedelta(seconds=end_eval_time - start_eval_time)
-        print(f"[T] - Sampling completed after: {delta} \n.")
-        print_memory_info(self.path_to_output_file, self.device)
 
         output = [[test_size, self.n_samples, matches, match_percentage]]
         self.save_stats(output)
 
         if len(self.thresholds) > 0:
-            output = fast_eval(self.path_to_test_dataset, self.thresholds, self.path_to_guesses_file)
+            output = fast_eval(
+                self.path_to_test_dataset, self.thresholds, self.path_to_guesses_file
+            )
             self.save_stats(output)
 
     def save_stats(self, output):
         if output:
-            fieldnames = ["model", "train-dataset", "test-settings", "test-hash", "test-size", "n_samples", "matches",
-                          "match_percentage"]
+            fieldnames = [
+                "model",
+                "train-dataset",
+                "test-settings",
+                "test-hash",
+                "test-size",
+                "n_samples",
+                "matches",
+                "match_percentage",
+            ]
 
             infos = self.settings["output_path"].split("/")
             csv_path = os.path.join(infos[0], infos[1], f"{infos[1]}.csv")
@@ -178,7 +199,12 @@ class Model:
                 model_name = model_name.replace("-", "")
             fixed_values = [model_name, infos[3], infos[4], self.test_hash]
 
-            rows = write_to_csv(csv_path, fieldnames=fieldnames, fixed_data=fixed_values, variable_data=output)
+            rows = write_to_csv(
+                csv_path,
+                fieldnames=fieldnames,
+                fixed_data=fixed_values,
+                variable_data=output,
+            )
             if csv_path not in self.written_rows:
                 self.written_rows[csv_path] = []
             for row in rows:
@@ -186,7 +212,7 @@ class Model:
 
     def plot_embedding(self, data, max_length):
         # you can skip implementing this
-        raise NotImplementedError('This method should be implemented in the subclass.')
+        raise NotImplementedError("This method should be implemented in the subclass.")
 
     def save(self, obj, mid=True):
         f_name = self.checkpoint_name if not mid else f"mid-{self.checkpoint_name}"
@@ -194,30 +220,49 @@ class Model:
         torch.save(obj, save_path)
 
     def finalize_checkpoint(self):
-        source_path = os.path.join(self.path_to_checkpoint_dir, "mid-" + self.checkpoint_name)
+        source_path = os.path.join(
+            self.path_to_checkpoint_dir, "mid-" + self.checkpoint_name
+        )
         if os.path.isfile(source_path):
-            output_path = os.path.join(self.path_to_checkpoint_dir, self.checkpoint_name)
+            output_path = os.path.join(
+                self.path_to_checkpoint_dir, self.checkpoint_name
+            )
             os.rename(source_path, output_path)
 
     def start_train(self, checkpoint_name):
         if checkpoint_name:
             print("[I] - Train mode selected. Searching for a checkpoint...")
-            file_to_load = os.path.join(self.path_to_checkpoint_dir, (self.checkpoint_name))
+            file_to_load = os.path.join(
+                self.path_to_checkpoint_dir, (self.checkpoint_name)
+            )
             status = self.load(file_to_load)
-            if not status:
-                print("[I] - No checkpoints found. Proceeding with normal training.")
-                self.train()
-                self.finalize_checkpoint()
+            if status:
+                print(
+                    "[I] - Final checkpoint loaded successfully. Training already finished :)."
+                )
+                return
             else:
-                print("[I] - Final checkpoint loaded successfully. Training already finished :).")
+                print("[I] - No checkpoints found. Proceeding with normal training.")
 
         else:
             print("[I] - Checkpoint not specified. Starting training from scratch.")
+
+        for _ in range(5):
+            self.memory_watcher.reset()
+            self.memory_watcher.start()
+            train_start = time.time()
+
             self.train()
             self.finalize_checkpoint()
 
+            train_end = time.time()
+            time_delta = timedelta(seconds=train_end - train_start)
+            print(f"[T] - Training completed after: {time_delta}")
+            self.memory_watcher.stop()
+
     def start_eval(self, checkpoint_name):
         print("[I] - Searching for a checkpoint for evaluation...")
+
         file_to_load = os.path.join(self.path_to_checkpoint_dir, self.checkpoint_name)
         status = self.load(file_to_load)
 
@@ -228,30 +273,43 @@ class Model:
 
         print("[I] - Checkpoint loaded successfully. Initiating model evaluation.")
 
+        self.memory_watcher.reset()
+        self.memory_watcher.start()
+        eval_start = time.time()
+
         matches, match_percentage, test_size = self.evaluate(self.n_samples)
+
+        eval_end = time.time()
+        time_delta = timedelta(seconds=eval_end - eval_start)
+        print(f"[T] - Evaluation completed after: {time_delta}")
+        self.memory_watcher.stop()
         return matches, match_percentage, test_size
 
     def _run_embedding(self):
-        if self.settings['data_to_embed']:
+        if self.settings["data_to_embed"]:
             try:
-                file_to_load = os.path.join(self.path_to_checkpoint_dir, self.checkpoint_name)
+                file_to_load = os.path.join(
+                    self.path_to_checkpoint_dir, self.checkpoint_name
+                )
                 self.load(file_to_load)
-                self.plot_embedding(self.settings['data_to_embed'], self.max_length)
+                self.plot_embedding(self.settings["data_to_embed"], self.max_length)
                 return True
             except NotImplementedError:
-                print("[W] - plot_embedding method not implemented by the subclass. Skipping embedding.")
+                print(
+                    "[W] - plot_embedding method not implemented by the subclass. Skipping embedding."
+                )
             except Exception as e:
                 print(f"[E] - Error during embedding: {e}")
         return False
 
     def write_to_file(self, file, generated_data):
-        with gzip.open(file, 'at') as file:
+        with gzip.open(file, "at") as file:
             for password in generated_data:
                 decoded_password = self.data.decode_password(password)
                 if decoded_password is None:
                     continue
                 password = self.data.remove_padding(decoded_password)
-                file.write(password + '\n')
+                file.write(password + "\n")
 
     def prepare_data(self, train_passwords, test_passwords, max_length):
         """
@@ -264,20 +322,20 @@ class Model:
             - test_passwords (set): A set of test passwords.
 
         Additionally, the object MUST implement the following methods:
-	        - encode_password(password): Takes a password string and returns its tokenized representation.
-	        - decode_password(password): Takes a tokenized password and returns the corresponding string after detokenization.
+                - encode_password(password): Takes a password string and returns its tokenized representation.
+                - decode_password(password): Takes a tokenized password and returns the corresponding string after detokenization.
             - remove_padding(password): Takes a padded password string and returns the same string with all padding tokens removed.
 
         Parameters:
-	        - self (Model): The model instance. You can access all variables and methods defined in this class, including
-	        self.data (the object returned by prepare_data) and self.params (the configuration parameters).
+                - self (Model): The model instance. You can access all variables and methods defined in this class, including
+                self.data (the object returned by prepare_data) and self.params (the configuration parameters).
             - train_passwords (list): The list of passwords used for training.
             - test_passwords (list): The list of passwords used for testing.
             - max_length (int): The maximum allowed password length.
         Returns:
              - An object containing the required attributes and methods, which will be later accessible via self.data.
         """
-        raise NotImplementedError('This method should be implemented in the subclass.')
+        raise NotImplementedError("This method should be implemented in the subclass.")
 
     def load(self, file_name):
         """
@@ -286,13 +344,13 @@ class Model:
         This method should load the model's state from the specified checkpoint file.
 
         Parameters:
-	        - self (Model): The model instance. You can access all variables and methods defined in this class, including
-	        self.data (the object returned by prepare_data) and self.params (the configuration parameters).
+                - self (Model): The model instance. You can access all variables and methods defined in this class, including
+                self.data (the object returned by prepare_data) and self.params (the configuration parameters).
             - file_name (str): Path to the checkpoint file.
         Returns:
             - int: Returns 1 if the model was successfully loaded, 0 otherwise.
         """
-        raise NotImplementedError('This method should be implemented in the subclass.')
+        raise NotImplementedError("This method should be implemented in the subclass.")
 
     def train(self):
         """
@@ -312,20 +370,28 @@ class Model:
         self.save(obj)
 
         Parameters:
-	        - self (Model): The model instance. You can access all variables and methods defined in this class, including
-	        self.data (the object returned by prepare_data) and self.params (the configuration parameters).
+                - self (Model): The model instance. You can access all variables and methods defined in this class, including
+                self.data (the object returned by prepare_data) and self.params (the configuration parameters).
         Returns:
             - None
         """
-        raise NotImplementedError('This method should be implemented in the subclass.')
+        raise NotImplementedError("This method should be implemented in the subclass.")
 
-    def evaluate(self, n_samples, validation_mode=False):
+    def helper_write_to_file(self, save_every: int, save_guesses: bool | Literal[0]):
+        if save_guesses and len(self.guesses) >= save_every:
+            if not self.keep_uniques:
+                self.write_to_file(self.path_to_guesses_file, self.guesses)
+                self.guesses = []
+
+    def evaluate(
+        self, n_samples, evaluation_batch_sizedation_mode=False, validation_mode=False
+    ):
         print(f"Generating {n_samples} passwords...")
         save_every = 1000000
         save_guesses = self.save_guesses and not validation_mode
         save_matches = self.save_matches and not validation_mode
 
-        evaluation_batch_size = int(self.params['eval']['evaluation_batch_size'])
+        evaluation_batch_size = int(self.params["eval"]["evaluation_batch_size"])
         if n_samples < evaluation_batch_size:
             n_batches, evaluation_batch_size = 1, int(n_samples)
         else:
@@ -334,26 +400,40 @@ class Model:
         eval_dict = self.eval_init(n_samples, evaluation_batch_size)
 
         progress_bar = tqdm(range(n_batches))
-        progress_bar.set_description(desc='Generating sample batch')
+        progress_bar.set_description(desc="Generating sample batch")
 
-        self.guesses = []
-        self.matches = set()
+        self.guesses: list[str] = []
+        self.matches: set[str] = set()
 
-        for batch in range(n_batches):
-            generated_passwords = self.sample(evaluation_batch_size, eval_dict)
+        for _ in range(n_batches):
+            generated_passwords: list[str] | Generator[str] = self.sample(
+                evaluation_batch_size, eval_dict
+            )
+            if n_batches == 1:
+                for sample in generated_passwords:
+                    self.guesses.append(sample)
+                    if sample in self.data.test_passwords:
+                        self.matches.add(sample)
 
-            self.guesses.extend(generated_passwords)
-            self.matches.update(generated_passwords & self.data.test_passwords)
+                    self.guessing_strategy(evaluation_batch_size, eval_dict)
+                    self.helper_write_to_file(save_every, save_guesses)
 
-            self.guessing_strategy(evaluation_batch_size, eval_dict)
+            else:
+                self.guesses.extend(generated_passwords)
+                self.matches.update(generated_passwords & self.data.test_passwords)
 
-            if save_guesses and len(self.guesses) >= save_every:
-                if not self.keep_uniques:
-                    self.write_to_file(self.path_to_guesses_file, self.guesses)
-                    self.guesses = []
+                self.guessing_strategy(evaluation_batch_size, eval_dict)
 
-            progress_bar.set_postfix({'Matches found': {len(self.matches)},
-                                      'Test set %': ({len(self.matches) / len(self.data.test_passwords) * 100.0})})
+                self.helper_write_to_file(save_every, save_guesses)
+
+            progress_bar.set_postfix(
+                {
+                    "Matches found": {len(self.matches)},
+                    "Test set %": (
+                        {len(self.matches) / len(self.data.test_passwords) * 100.0}
+                    ),
+                }
+            )
             progress_bar.update(1)
 
         self.post_sampling(eval_dict)
@@ -361,13 +441,13 @@ class Model:
         if save_guesses and len(self.guesses) > 0:
             self.write_to_file(self.path_to_guesses_file, self.guesses)
 
-        if save_matches:
+        if save_matches and len(self.matches) > 0:
             self.write_to_file(self.path_to_matches_file, self.matches)
 
         n_matches = len(self.matches)
         test_size = len(self.data.test_passwords)
-        match_percentage = f'{(n_matches / test_size) * 100:.2f}%'
-        print(f'{n_matches} matches found ({match_percentage} of test set).')
+        match_percentage = f"{(n_matches / test_size) * 100:.2f}%"
+        print(f"{n_matches} matches found ({match_percentage} of test set).")
         return n_matches, match_percentage, test_size
 
     def eval_init(self, n_samples, evaluation_batch_size):
@@ -380,16 +460,16 @@ class Model:
         return them in a dictionary.
 
         Parameters:
-	        - self (Model): The model instance. You can access all variables and methods defined in this class, including
-	        self.data (the object returned by prepare_data) and self.params (the configuration parameters).
+                - self (Model): The model instance. You can access all variables and methods defined in this class, including
+                self.data (the object returned by prepare_data) and self.params (the configuration parameters).
             - n_samples (int): The number of passwords to generate.
             - evaluation_batch_size (int): The batch size to use during evaluation.
         Returns:
             - eval_dict (dict): A dictionary containing all initialized resources.
         """
-        raise NotImplementedError('This method should be implemented in the subclass.')
+        raise NotImplementedError("This method should be implemented in the subclass.")
 
-    def sample(self, evaluation_batch_size, eval_dict):
+    def sample(self, evaluation_batch_size, eval_dict) -> list[str] | Generator[str]:
         """
         **TO BE IMPLEMENTED BY SUBCLASS.**
 
@@ -398,15 +478,16 @@ class Model:
         Make sure that the returned passwords follow the same format as the test passwords defined in prepare_data;
         otherwise, no matches will be found during evaluation.
         Parameters:
-	        - self (Model): The model instance. You can access all variables and methods defined in this class, including
-	        self.data (the object returned by prepare_data) and self.params (the configuration parameters).
+                - self (Model): The model instance. You can access all variables and methods defined in this class, including
+                self.data (the object returned by prepare_data) and self.params (the configuration parameters).
             - evaluation_batch_size (int): Number of passwords to generate in this batch.
             - eval_dict (dict): Dictionary returned in `self.eval_init`.
         Returns:
             - generated_passwords (list): A list of generated passwords, matching the format of the test passwords defined in
              prepare_data.
+            -generated_passwords (Generator[str]): a generator for the passwords, use this if low on memory
         """
-        raise NotImplementedError('This method should be implemented in the subclass.')
+        raise NotImplementedError("This method should be implemented in the subclass.")
 
     def guessing_strategy(self, evaluation_batch_size, eval_dict):
         """
@@ -419,14 +500,14 @@ class Model:
         Leave this method blank if your model does not require a specific guessing strategy.
 
         Parameters:
-	        - self (Model): The model instance. You can access all variables and methods defined in this class, including
-	        self.data (the object returned by prepare_data) and self.params (the configuration parameters).
+                - self (Model): The model instance. You can access all variables and methods defined in this class, including
+                self.data (the object returned by prepare_data) and self.params (the configuration parameters).
             - evaluation_batch_size (int): Number of passwords generated in the current batch.
             - eval_dict (dict): Dictionary returned by `self.eval_init`.
         Returns:
             - None
         """
-        raise NotImplementedError('This method should be implemented in the subclass.')
+        raise NotImplementedError("This method should be implemented in the subclass.")
 
     def post_sampling(self, eval_dict):
         """
@@ -436,20 +517,21 @@ class Model:
         resetting variables, or releasing resources.
 
         Parameters:
-	        - self (Model): The model instance. You can access all variables and methods defined in this class, including
-	        self.data (the object returned by prepare_data) and self.params (the configuration parameters).
+                - self (Model): The model instance. You can access all variables and methods defined in this class, including
+                self.data (the object returned by prepare_data) and self.params (the configuration parameters).
             - eval_dict (dict): Dictionary returned by `self.eval_init`.
         Returns:
             - None
         """
-        raise NotImplementedError('This method should be implemented in the subclass.')
+        raise NotImplementedError("This method should be implemented in the subclass.")
 
 
 def read_dataset(path):
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         data = pickle.load(f)
     data = data.split("\n")
     return data
+
 
 def get_checkpoint_id(path):
     next_id = 1
@@ -461,7 +543,7 @@ def get_checkpoint_id(path):
             if not os.path.isfile(file_path):
                 continue
 
-            id_str = filename[len("checkpoint"):-3]  # remove prefix and '.pt'
+            id_str = filename[len("checkpoint") : -3]  # remove prefix and '.pt'
             try:
                 checkpoint_id = int(id_str) if id_str else 0
                 checkpoints.append((filename, checkpoint_id))
@@ -476,6 +558,7 @@ def get_checkpoint_id(path):
     latest_checkpoint = checkpoints[0][0] if checkpoints else None
     return next_id, latest_checkpoint
 
+
 def use_specified_checkpoint(source_path, target_dir, file_name):
     if not os.path.exists(source_path):
         raise FileNotFoundError(f"Checkpoint file not found: {source_path}")
@@ -487,6 +570,7 @@ def use_specified_checkpoint(source_path, target_dir, file_name):
         return file_name
     else:
         return os.path.basename(source_path)
+
 
 def _create_and_clean_dir(path):
     os.makedirs(path, exist_ok=True)

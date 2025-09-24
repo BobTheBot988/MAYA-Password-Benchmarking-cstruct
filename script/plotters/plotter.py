@@ -1,4 +1,5 @@
 import os
+import csv
 
 from script.utils.file_operations import redirect_stdout, reset_stderr, reset_stdout
 
@@ -48,8 +49,9 @@ class Plotter:
 
             for row_str in row_list:
                 row_values = row_str.strip().split(",")
-                row = dict(zip(headers, row_values))
-                self._process_single_row(row)
+                if row_str:
+                    row = dict(zip(headers, row_values))
+                    self._process_single_row(row)
 
     def _process_single_row(self, row):
         raise NotImplementedError('This method should be implemented in the subclass.')
@@ -67,3 +69,9 @@ class Plotter:
         reset_stderr()
         reset_stdout()
         redirect_stdout(self.output_file)
+
+    def _read_csv(self, path):
+        with open(path, newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                self._process_single_row(row)

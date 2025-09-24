@@ -55,7 +55,9 @@ class RQ1Plotter(Plotter):
 
                 self.data[test_settings][model] = avg
 
+
     def _plot_data(self):
+        self._read_csv('script/plotters/src/rq1-baseline.csv')
         self._compute_weighted_average()
         values = [v for test_settings in self.data for model in self.data[test_settings]
                   for v in self.data[test_settings][model]]
@@ -67,7 +69,7 @@ class RQ1Plotter(Plotter):
         x_ticks = ([1e6, 1e7, 1e8, 5e8], ['10^6', '10^7', '10^8', '5*10^8'])
 
         for test_settings in self.data:
-            labels = list(self.data[test_settings].keys())
+            labels = sorted(list(self.data[test_settings].keys()))
             y_data = [self.data[test_settings][model] for model in labels]
 
             multiline_graph(x_data=self.x_data,

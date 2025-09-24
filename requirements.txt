@@ -1,6 +1,7 @@
 accelerate
 argparse
 gdown
+heapcy
 datasets
 py7zr
 pyyaml

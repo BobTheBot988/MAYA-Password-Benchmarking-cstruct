@@ -30,6 +30,8 @@ class RQ3Plotter(Plotter):
                 self.data[key][model] = dict(sorted(self.data[key][model].items()))
 
     def _plot_data(self):
+        self._read_csv('script/plotters/src/rq3-baseline.csv')
+
         x_data = list(range(len(self.x_data)))
 
         for test_settings in self.data:
@@ -47,7 +49,7 @@ class RQ3Plotter(Plotter):
 
         for test_settings in self.data:
             for model in self.data[test_settings]:
-                labels = list(self.data[test_settings][model].keys())
+                labels = sorted(list(self.data[test_settings][model].keys()))
                 y_data = [self.data[test_settings][model][train_dataset] for train_dataset in labels]
 
                 multiline_graph(x_data=x_data,

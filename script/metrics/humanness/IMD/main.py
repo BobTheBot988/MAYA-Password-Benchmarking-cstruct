@@ -7,9 +7,9 @@ from tqdm import tqdm
 sys.path.append(os.getcwd())
 
 from script.config.config import read_config
-from script.metrics.utils.common_op import read_passwords, parse_args
-from script.metrics.IMD.lib.msid import msid_score
-from script.metrics.utils.tokenizer import Tokenizer
+from script.metrics.humanness.utils.common_op import read_passwords, parse_args
+from script.metrics.humanness.IMD.lib.msid import msid_score
+from script.metrics.humanness.utils.tokenizer import Tokenizer
 
 CONFIG = "script/metrics/IMD/CONF/config.yaml"
 

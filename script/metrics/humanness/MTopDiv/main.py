@@ -6,9 +6,9 @@ import os
 sys.path.append(os.getcwd())
 
 from script.config.config import read_config
-from script.metrics.utils.common_op import read_passwords, parse_args
-from script.metrics.utils.tokenizer import Tokenizer
-from script.metrics.MTopDiv.mtopdiv import mtopdiv
+from script.metrics.humanness.utils.common_op import read_passwords, parse_args
+from script.metrics.humanness.utils.tokenizer import Tokenizer
+from script.metrics.humanness.MTopDiv.mtopdiv import mtopdiv
 
 CONFIG = "script/metrics/MTopDiv/CONF/config.yaml"
 

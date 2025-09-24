@@ -2,8 +2,8 @@ import torch
 import numpy as np
 import os
 from tqdm import tqdm
-from script.metrics.OCC.architecture import OneClass
-from script.metrics.utils.common_op import get_batches
+from script.metrics.humanness.OCC.architecture import OneClass
+from script.metrics.humanness.utils.common_op import get_batches
 from script.utils.gpu import select_gpu
 from sklearn.neighbors import NearestNeighbors
 

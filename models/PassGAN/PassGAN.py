@@ -2,8 +2,6 @@ import math
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
-import time
-from datetime import timedelta
 
 from models.PassGAN.architecture import Generator, Discriminator
 from script.test.model import Model
@@ -92,8 +90,6 @@ class PassGAN(Model):
         epochs = math.ceil(num_gen_training_steps * disc_iters4iteration / batch_4_epochs)
         progress_bar = tqdm(range(num_gen_training_steps))
 
-        start = time.time()
-
         current_epoch = 0
         gen_iteration_counter = 0
         disc_iteration_counter = 0
@@ -135,10 +131,6 @@ class PassGAN(Model):
                         break
 
             current_epoch += 1
-
-        end = time.time()
-        time_delta = timedelta(seconds=end - start)
-        print(f"[T] - Training completed after: {time_delta}")
 
     def generate_random_noise(self, batch_size):
         z_prior = self.params['train']['z_prior']

@@ -55,6 +55,7 @@ class RQ7_3Plotter(Plotter):
             self.data[test_settings] = sorted_stats
 
     def _plot_data(self):
+        self._read_csv('script/plotters/src/rq7.3-baseline.csv')
         self._compute_average()
 
         for test_settings in self.data:

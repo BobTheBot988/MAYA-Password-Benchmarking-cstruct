@@ -87,6 +87,8 @@ class RQ5_1Plotter(Plotter):
 
 
     def _plot_data(self):
+        self._read_csv('script/plotters/src/rq5.1-baseline.csv')
+
         data, std_dev = self._compute_weighted_average()
 
         self.data = data
@@ -96,7 +98,7 @@ class RQ5_1Plotter(Plotter):
 
         for test_settings in self.data:
 
-            labels = list(self.data[test_settings].keys())
+            labels = sorted(list(self.data[test_settings].keys()))
             y_data = [self.data[test_settings][model] for model in labels]
             y_errors = [std_dev[test_settings][model] for model in labels]
 

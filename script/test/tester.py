@@ -286,6 +286,8 @@ class Tester:
 
                 save_split(train_passwords, train_data_path)
                 save_split(test_passwords, test_data_path)
+            else:
+                print("Skipping pre-processing as datasets were already found.")
 
             print(f"Running test {test_name}")
             if test_settings["models"] != "NULL":

@@ -114,8 +114,8 @@ def multiline_graph(fig_size=None, x_data=None, y_data=None, y_errors=None, x_ca
 
 
 def bar_graph(fig_size=None, x_data=None, y_data=None, y_errors=None, x_caption="", y_caption="", x_lim=None, y_lim=None, title="",
-                    y_log_scale=False, x_log_scale=False, y_ticks=None, x_ticks=None, labels=None, color='blue',
-                    legend_params={}, fontsize=12, labelsize=11, dest_path=None, bar_width=0.75, multiplier=1.15, point_dict=None):
+                    y_log_scale=False, x_log_scale=False, y_ticks=None, x_ticks=None, labels=None, color='blue',legend_params={},
+                    margin=0.05, fontsize=12, labelsize=11, dest_path=None, bar_width=0.75, multiplier=1.15, point_dict=None):
 
     plt, fig, ax = general_structure(fig_size=fig_size,
                                      x_caption=x_caption,
@@ -130,6 +130,8 @@ def bar_graph(fig_size=None, x_data=None, y_data=None, y_errors=None, x_caption=
                                      fontsize=fontsize,
                                      labelsize=labelsize,
                                      )
+
+    ax.margins(x=margin)
 
 
     bar_width = bar_width / len(x_data)
@@ -159,11 +161,13 @@ def bar_graph(fig_size=None, x_data=None, y_data=None, y_errors=None, x_caption=
 def heatmap_table(data, items, color="Oranges", vmin=None, vmax=None, dest_path=None, cbar_kws=None):
     models_name = {
         'fla': 'FLA',
-        'passgan': 'PassGAN',
+        'passgan': 'PGAN',
         'plrgan': 'PLR',
-        'passflow': 'PassFlow',
-        'passgpt': 'PassGPT',
-        'vgpt2': 'VGPT2',
+        'passflow': 'PFLOW',
+        'passgpt': 'PGPT',
+        'vgpt2': 'VGPT',
+        'omen': 'OMEN',
+        'pcfg': 'PCFG',
     }
 
     labels = [models_name.get(item.lower(), item) for item in items]
@@ -180,9 +184,10 @@ def heatmap_table(data, items, color="Oranges", vmin=None, vmax=None, dest_path=
         matrix[j, i] = value
 
     df = pd.DataFrame(matrix, index=items, columns=items)
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(8, 5))
     plt.subplots_adjust(top=0.92)
-    sns.heatmap(df, annot=True, fmt=".4f", cmap=color, linewidths=1, yticklabels=labels, xticklabels=labels, cbar=True, vmin=vmin, vmax=vmax, cbar_kws=cbar_kws)
+    sns.heatmap(df, annot=True, fmt=".3f", cmap=color, linewidths=1, yticklabels=labels, xticklabels=labels, cbar=True, vmin=vmin, vmax=vmax, cbar_kws=cbar_kws)
+
     plt.show()
 
     if dest_path is not None:

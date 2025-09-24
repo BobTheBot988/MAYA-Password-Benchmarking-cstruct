@@ -12,11 +12,13 @@ class RQ6_2Plotter(Plotter):
         self.x_data = {}
         self.models_name = {
             'fla': 'FLA',
-            'passgan': 'PassGAN',
+            'passgan': 'PGAN',
             'plrgan': 'PLR',
-            'passflow': 'PassFlow',
-            'passgpt': 'PassGPT',
-            'vgpt2': 'VGPT2',
+            'passflow': 'PFLOW',
+            'passgpt': 'PGPT',
+            'vgpt2': 'VGPT',
+            'omen': 'OMEN',
+            'pcfg': 'PCFG',
         }
 
     def _process_single_row(self, row):
@@ -71,7 +73,10 @@ class RQ6_2Plotter(Plotter):
         self._compute_delta()
 
         for test_settings in self.data:
-            labels = list(self.data[test_settings].keys())
+            labels = sorted(list(self.data[test_settings].keys()))
+            if "Average" in labels:
+                labels.append(labels.pop(labels.index("Average")))
+
             y_data = [[0] + self.data[test_settings][label] for label in labels]
 
             multiline_graph(x_data=self.x_data[test_settings],

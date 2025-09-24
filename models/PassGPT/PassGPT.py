@@ -2,8 +2,6 @@ import os
 import gzip
 from transformers import GPT2LMHeadModel, GPT2Config
 from transformers import TrainingArguments
-import time
-from datetime import timedelta
 import numpy as np
 import random
 from tqdm import trange
@@ -104,11 +102,8 @@ class PassGPT(Model):
         )
 
         print("[I] - Launching training")
-        start = time.time()
         trainer.train()
-        end = time.time()
 
-        print("[T] - Training completed after {}. Storing last version.".format(str(timedelta(seconds=end - start))))
         path = os.path.join(self.path_to_checkpoint_dir, self.checkpoint_name)
         self.save(path)
 

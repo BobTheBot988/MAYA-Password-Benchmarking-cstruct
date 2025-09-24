@@ -58,6 +58,9 @@ class RQ7_2Evaluator(Evaluator):
         models = self.test_settings["models"]
         datasets = self.test_settings["train_datasets"]
 
+        if self.search_settings['real_data_mode'] != "":
+            models.append('real')
+
         for model in models:
             for dataset in datasets:
                 for setting_string in setting_strings:

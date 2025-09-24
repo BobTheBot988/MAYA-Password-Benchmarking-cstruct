@@ -1,6 +1,4 @@
 import sys
-import time
-from datetime import timedelta
 import numpy as np
 import torch
 from torch.nn import functional as F
@@ -52,7 +50,6 @@ class PassFlow(Model):
 
     def prepare_data(self, train_passwords, test_passwords, max_length):
         data = Dataset(train_passwords, test_passwords, max_length, self.test_hash)
-        data.test_passwords = {np.array(password, dtype=np.uint8).tobytes() for password in data.test_passwords}
         return data
 
     def load(self, file_to_load):
@@ -68,8 +65,6 @@ class PassFlow(Model):
             return 0
 
     def init_model(self):
-        self.keep_uniques = True
-
         optimizer = torch.optim.Adam
         dim = self.data.max_length
         lr = self.params['train']['learning_rate']
@@ -148,8 +143,6 @@ class PassFlow(Model):
         early_stop_epoch = n_epochs // 2
         early_stop_counter = 0
 
-        start = time.time()
-
         current_epoch = 0
         n_matches = 0
         checkpoint_frequency = self.params['eval']['checkpoint_frequency']
@@ -208,10 +201,6 @@ class PassFlow(Model):
                         self.save(obj)
 
             current_epoch += 1
-
-        end = time.time()
-        time_delta = timedelta(seconds=end - start)
-        print(f"[T] - Training completed after: {time_delta}")
 
     def smoothen_samples(self, samples, uniques):
         for idx, sample in enumerate(samples):
@@ -310,6 +299,7 @@ class PassFlow(Model):
                 'count_samples': count_samples,
                 'old_matches': set(),
                 'dim': self.data.max_length,
+                'uniques': set(),
             })
 
         sys.stdout.flush()
@@ -320,26 +310,24 @@ class PassFlow(Model):
             raw_samples = self.model.sample(evaluation_batch_size)
             samples = self.preprocess(raw_samples, reverse=True).to('cpu').numpy()
 
-            if eval_dict['gs'] and self.guesses is not None and self.params['train']['noise'] != 0:
-                samples = self.smoothen_samples(samples, set(self.guesses))
+            if eval_dict['gs'] and eval_dict['uniques'] and self.params['train']['noise'] != 0:
+                samples = self.smoothen_samples(samples, eval_dict['uniques'])
             else:
                 samples = np.around(samples).astype(np.uint8)
 
             encoded_samples = {x.tobytes() for x in samples}
-            return encoded_samples
+            eval_dict['uniques'].update(encoded_samples)
+            return {tuple(x) for x in samples}
 
     def guessing_strategy(self, evaluation_batch_size, eval_dict):
         if eval_dict['gs'] or eval_dict['ds']:
             self.dynamic_sampling(evaluation_batch_size, eval_dict)
 
     def post_sampling(self, eval_dict):
-        self.guesses = [tuple(np.frombuffer(x, dtype=np.uint8)) for x in self.guesses]
-        self.matches = [tuple(np.frombuffer(x, dtype=np.uint8)) for x in self.matches]
-
         self.model.reset_prior()
 
     def dynamic_sampling(self, evaluation_batch_size, eval_dict):
-        new_matches = set(self.matches) - eval_dict['old_matches']
+        new_matches = self.matches - eval_dict['old_matches']
 
         for match in new_matches:
             eval_dict['matched_history'][match] = 0
@@ -349,7 +337,7 @@ class PassFlow(Model):
                 idxs = np.random.randint(0, len(eval_dict['matched_history']), evaluation_batch_size, np.int32)
 
                 key_list = np.fromiter(eval_dict['matched_history'].keys(), dtype=object)[idxs]
-                encoded_key_list = np.array([np.frombuffer(key, dtype=np.uint8) for key in key_list])
+                np_key_list = np.array([np.array(key, dtype=np.uint8) for key in key_list])
 
                 for key in key_list:
                     if key in eval_dict['matched_history']:
@@ -357,7 +345,7 @@ class PassFlow(Model):
                         if eval_dict['matched_history'][key] > eval_dict['gamma']:
                             del eval_dict['matched_history'][key]
 
-                x = torch.FloatTensor(encoded_key_list).to(self.device)
+                x = torch.FloatTensor(np_key_list).to(self.device)
                 x, _ = self.preprocess(x)
                 matched_z = self.model.flow(x)[0].to('cpu').numpy()
 
@@ -367,4 +355,4 @@ class PassFlow(Model):
             else:
                 self.model.reset_prior()
 
-        eval_dict['old_matches'] = set(self.matches)
+        eval_dict['old_matches'] = self.matches.copy()

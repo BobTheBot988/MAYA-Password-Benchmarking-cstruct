@@ -7,8 +7,8 @@ from tqdm import tqdm
 import numpy as np
 import torch.nn.functional as F
 
-from script.metrics.psw_classifier.architecture import CNNClassifier
-from script.metrics.utils.common_op import get_batches
+from script.metrics.humanness.psw_classifier.architecture import CNNClassifier
+from script.metrics.humanness.utils.common_op import get_batches
 from script.utils.gpu import select_gpu
 
 

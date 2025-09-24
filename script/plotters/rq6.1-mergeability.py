@@ -54,7 +54,8 @@ class RQ6_1_MergeabilityPlotter(Plotter):
                           vmin=0,
                           vmax=1,
                           dest_path=os.path.join(self.dest_folder, f"{test_settings}-mergeability.pdf"),
-                          cbar_kws={"label": "Mergeability Index"}
+                          cbar_kws={"label": "0 = Identical, 1 = Different", "pad": 0.05},
+                          color="Greens",
                           )
 
     def _extra(self):

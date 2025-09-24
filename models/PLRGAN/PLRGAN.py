@@ -1,9 +1,7 @@
 import math
 import torch.nn.functional as F
-import time
 
 from tqdm import tqdm
-from datetime import timedelta
 
 from script.test.model import Model
 from script.dataset.dataset import Dataset
@@ -93,8 +91,6 @@ class PLRGAN(Model):
         epochs = math.ceil(num_gen_training_steps * disc_iters4iteration / batch_4_epochs)
         progress_bar = tqdm(range(num_gen_training_steps))
 
-        start = time.time()
-
         current_epoch = 0
         gen_iteration_counter = 0
         disc_iteration_counter = 0
@@ -137,10 +133,6 @@ class PLRGAN(Model):
                         break
 
             current_epoch += 1
-
-        end = time.time()
-        time_delta = timedelta(seconds=end - start)
-        print(f"[T] - Training completed after: {time_delta}")
 
     def transform_truedata(self, x, dict_size):
         x = F.one_hot(x, dict_size).to(self.device)

@@ -16,13 +16,7 @@ results/**
 !results/*/*
 checkpoints/*
 parameters/*
-.vscode/*
-.vscode/launch.json
-.vscode
+
 models/PassGPT/tokenizer/*
 
 script/metrics/utils/*.txt
-guesses 
-*.cpp
-*.pyx
-setup.py

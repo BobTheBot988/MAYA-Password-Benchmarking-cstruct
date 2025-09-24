@@ -1,7 +1,5 @@
 from tqdm import tqdm
 import torch
-import time
-from datetime import timedelta
 import os
 
 import sys
@@ -68,8 +66,6 @@ class VGPT2(Model):
 
         checkpoint_frequency = self.params['eval']['checkpoint_frequency']
 
-        start = time.time()
-
         self.init_model()
 
         while current_epoch < epochs:
@@ -105,11 +101,8 @@ class VGPT2(Model):
                     self.save(obj)
 
             self.scheduler.step()
-            current_epoch += 1
 
-        end = time.time()
-        time_delta = timedelta(seconds=end - start)
-        print(f"[T] - Training completed after: {time_delta}")
+            current_epoch += 1
 
     def eval_init(self, n_samples, evaluation_batch_size):
         self.model.eval()

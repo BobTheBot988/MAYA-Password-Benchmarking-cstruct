@@ -12,6 +12,7 @@ def train_test_split(data, train_split_percentage):
     return train_passwords, test_passwords
 
 def read_datasets(paths):
+    non_ascii_passwords = 0
     data = []
     for path in paths:
         tmp_data = []
@@ -21,9 +22,11 @@ def read_datasets(paths):
                 password = password[:-1]
 
             if not all(32 <= ord(c) <= 127 for c in password):
+                non_ascii_passwords += 1
                 continue
 
             tmp_data.append(password)
 
         data.extend(tmp_data)
-    return data
+
+    return data, non_ascii_passwords

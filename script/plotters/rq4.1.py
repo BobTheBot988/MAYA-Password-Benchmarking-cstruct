@@ -28,16 +28,17 @@ class RQ4_1Plotter(Plotter):
             self.data[key] = dict(sorted(self.data[key].items()))
 
     def _plot_data(self):
-        header = "\\multirow{2}{*}{}"
-        sub_header = "Train / Test"
+        self._read_csv('script/plotters/src/rq4.1-baseline.csv')
 
         for test_settings in self.data:
-            print(f"Settings: {test_settings}\n")
-            models = list(self.data[test_settings].keys())
+            models = sorted(list(self.data[test_settings].keys()))
+
+            print("\\begin{tabular}{l *{" + str(3 * len(models)) + "}{c}}")
+            print("    \\toprule")
 
             train_datasets = set()
             test_datasets = set()
-            for model in self.data[test_settings]:
+            for model in models:
                 train_datasets.update(self.data[test_settings][model].keys())
                 for train in self.data[test_settings][model]:
                     test_datasets.update(self.data[test_settings][model][train].keys())
@@ -45,24 +46,29 @@ class RQ4_1Plotter(Plotter):
             train_datasets = sorted(train_datasets)
             test_datasets = sorted(test_datasets)
 
+            header = "    \\multirow{2}{*}{\\textbf{Train / Test}}"
             for model in models:
-                header += f" & \\multicolumn{{3}}{{c|}}{{{model}}}"
+                header += f" & \\multicolumn{{{len(test_datasets)}}}{{c}}{{\\textbf{{{model}}}}}"
             header += " \\\\"
-
-            for _ in models:
-                for test in test_datasets:
-                    sub_header += f" & {test}"
-            sub_header += " \\\\"
-
-            print("\\begin{tabular}{|c|" + "c|" * (3 * len(models)) + "}")
-            print("\\hline")
             print(header)
-            print("\\cline{2-" + str(1 + 3 * len(models)) + "}")
+
+            cmidrules = []
+            for i in range(len(models)):
+                start = 2 + len(test_datasets) * i
+                end = start + len(test_datasets) - 1
+                cmidrules.append(f"\\cmidrule(lr){{{start}-{end}}}")
+            print("    " + " ".join(cmidrules))
+
+            sub_header = "    "
+            for model in models:
+                for test in test_datasets:
+                    sub_header += f" & {{\\textbf{{{test}}}}}"
+            sub_header += " \\\\"
             print(sub_header)
-            print("\\hline")
+            print("    \\midrule")
 
             for train in train_datasets:
-                row = train
+                row = f"    {train}"
                 for model in models:
                     for test in test_datasets:
                         if test in self.data[test_settings][model][train]:
@@ -70,12 +76,12 @@ class RQ4_1Plotter(Plotter):
                         else:
                             value = "N/A"
                         if isinstance(value, float):
-                            value = f"{value:.2f}\\%"
+                            value = f"{value:.2f}"
                         row += f" & {value}"
                 row += " \\\\"
                 print(row)
-                print("\\hline")
 
+            print("    \\bottomrule")
             print("\\end{tabular}")
             print("\n")
 

@@ -12,11 +12,13 @@ This repository contains the official implementation of the paper [*MAYA: Addres
 ## Citation
 
 ```
-@article{corrias2025maya,
+@inproceedings{corrias2025maya,
   title={MAYA: Addressing Inconsistencies in Generative Password Guessing through a Unified Benchmark},
   author={Corrias, William and De Gaspari, Fabio and Hitaj, Dorjan and Mancini, Luigi V},
-  journal={arXiv preprint arXiv:2504.16651},
-  year={2025}
+  booktitle={2026 IEEE Symposium on Security and Privacy (SP)},
+  year={2026},
+  organization={IEEE},
+  note={To appear},
 }
 ```
 

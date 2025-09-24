@@ -26,14 +26,8 @@ class RQ2Plotter(Plotter):
             for dataset in self.data[key]:
                 self.data[key][dataset] = dict(sorted(self.data[key][dataset].items()))
 
-    def _read_csv(self, path):
-        with open(path, newline='') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                self._process_single_row(row)
-
     def _plot_data(self):
-        self._read_csv('script/plotters/src/rq2-traditional.csv')
+        self._read_csv('script/plotters/src/rq2-baseline.csv')
 
         values = [self.data[test_settings][dataset][model][n_samples] for test_settings in self.data for dataset
                   in self.data[test_settings] for model in self.data[test_settings][dataset] for n_samples in self.data[test_settings][dataset][model]]
@@ -48,7 +42,11 @@ class RQ2Plotter(Plotter):
 
         for test_settings in self.data:
             for dataset in self.data[test_settings]:
-                labels = list(self.data[test_settings][dataset].keys())
+                labels = sorted(list(self.data[test_settings][dataset].keys()))
+                if "hashcat" in labels:
+                    labels.append(labels.pop(labels.index("hashcat")))
+                if "jtr" in labels:
+                    labels.append(labels.pop(labels.index("jtr")))
                 y_data = [[self.data[test_settings][dataset][model][n_samples] for n_samples in self.x_data] for model in labels]
 
                 multiline_graph(x_data=self.x_data,

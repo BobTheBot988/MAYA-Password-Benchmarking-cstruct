@@ -1,38 +1,52 @@
 from script.utils.file_operations import save_pickle
 
-
 def count_to_plain(input_file, output_file):
-    # List to store passwords
     passwords = []
+    non_utf8_passwords = 0
 
-    with open(input_file, 'r', encoding='utf-8', errors='ignore') as fi:
+    with open(input_file, 'rb') as fi:
         for line in fi:
+            error_flag = False
+            try:
+                line = line.decode(encoding='utf-8')
+            except UnicodeDecodeError:
+                line = line.decode(encoding='utf-8', errors='ignore')
+                error_flag = True
+
             try:
                 line = line.strip()
                 count, password = line.split(' ', 1)
+                if error_flag:
+                    non_utf8_passwords += int(count)
                 password = password.strip("\n")
                 password = password.replace(" ", "")
 
-                # If the password is not empty
                 if password:
-                    # Append the password to the passwords list 'count' times
                     for i in range(int(count)):
                         passwords.append(password + "\n")
 
             except ValueError:
-                # Continue to the next line if an error occurs
                 continue
 
-    # Save the passwords list to a pickle file
     save_pickle(output_file, passwords)
+
+    print(f"Total passwords: {len(passwords)}.")
+    print(f"# non-UTF8 passwords: {non_utf8_passwords}.")
+    print(f"% of non-UTF8 passwords: {non_utf8_passwords / len(passwords) * 100}.")
 
 
 def email_to_plain(input_file, output_file, mode):
-    # List to store passwords
     passwords = []
+    non_utf8_passwords = 0
 
-    with open(input_file, 'r', encoding='utf-8', errors='ignore') as fi:
+    with open(input_file, 'rb') as fi:
         for line in fi:
+            try:
+                line = line.decode(encoding='utf-8')
+            except UnicodeDecodeError:
+                line = line.decode(encoding='utf-8', errors='ignore')
+                non_utf8_passwords += 1
+
             try:
                 if mode == "first":
                     index = line.find(":")
@@ -49,36 +63,43 @@ def email_to_plain(input_file, output_file, mode):
                 password = password.rstrip("\n")
                 password = password.replace(" ", "")
 
-                # If the password is not empty
                 if password:
-                    # Append the password to the passwords list
                     passwords.append(password + "\n")
 
             except ValueError:
-                # Continue to the next line if an error occurs
                 continue
 
     # Save the passwords list to a pickle file
     save_pickle(output_file, passwords)
+
+    print(f"Total passwords: {len(passwords)}.")
+    print(f"# non-UTF8 passwords: {non_utf8_passwords}")
+    print(f"% of non-UTF8 passwords: {non_utf8_passwords / len(passwords) * 100}.")
 
 
 def format_plain(input_file, output_file):
-    # List to store passwords
     passwords = []
+    non_utf8_passwords = 0
 
-    with open(input_file, 'r', encoding='utf-8', errors='ignore') as fi:
-        for password in fi:
+    with open(input_file, 'rb') as fi:
+        for line in fi:
+            try:
+                password = line.decode(encoding='utf-8')
+            except UnicodeDecodeError:
+                password = line.decode(encoding='utf-8', errors='ignore')
+                non_utf8_passwords += 1
+
             try:
                 password = password.replace(" ", "")
                 password = password.strip("\n")
-
                 if password:
-                    # Append the password to the passwords list
                     passwords.append(password + "\n")
 
             except ValueError:
-                # Continue to the next line if an error occurs
                 continue
 
-    # Save the passwords list to a pickle file
     save_pickle(output_file, passwords)
+
+    print(f"Total passwords: {len(passwords)}.")
+    print(f"# non-UTF8 passwords: {non_utf8_passwords}")
+    print(f"% of non-UTF8 passwords: {non_utf8_passwords / len(passwords) * 100}.")

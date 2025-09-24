@@ -77,15 +77,19 @@ class Evaluator:
         test_name = self.csv_settings['test_name']
         csv_path = os.path.join(RESULTS_PATH, test_name, f"{test_name}.csv")
 
-        with open(csv_path, newline='') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                for query in searching_for:
-                    if all(row.get(k) == v or row.get(k) == 'NONE' for k, v in dict(query).items()):
-                        searching_for[query] = 1
-                        if csv_path not in self.written_rows:
-                            self.written_rows[csv_path] = []
-                        self.written_rows[csv_path].append(",".join(row[k] for k in row))
+        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+        if not os.path.isfile(csv_path):
+            open(csv_path, 'w').close()
+        else:
+            with open(csv_path, newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    for query in searching_for:
+                        if all(row.get(k) == v or row.get(k) == 'NONE' for k, v in dict(query).items()):
+                            searching_for[query] = 1
+                            if csv_path not in self.written_rows:
+                                self.written_rows[csv_path] = []
+                            self.written_rows[csv_path].append(",".join(row[k] for k in row))
 
         for query in searching_for:
             if searching_for[query] == 0:
@@ -145,15 +149,16 @@ class Evaluator:
 
         for model in models:
             for dataset in datasets:
-                if model == "real" and real_data_mode == "full":
-                    real_path = self._get_real_dataset_path(dataset)
-                    real_paths.setdefault("-", {})[dataset] = real_path
-                    continue
-
                 for setting_string in setting_strings:
                     others, n_samples = setting_string.split(os.sep)
                     entry = ",".join([model, dataset, others, n_samples])
+
                     if self.test_settings["overwrite"] == 0 and entry not in missing_entries:
+                        continue
+
+                    if model == "real" and real_data_mode == "full":
+                        real_path = self._get_real_dataset_path(dataset)
+                        real_paths.setdefault(setting_string, {})[dataset] = real_path
                         continue
 
                     setting_path = os.path.join(RESULTS_PATH, test, model, dataset, setting_string)

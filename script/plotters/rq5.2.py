@@ -72,12 +72,27 @@ class RQ5_2Plotter(Plotter):
 
 
     def _plot_data(self):
+        self._read_csv('script/plotters/src/rq5.2-baseline.csv')
+
         self._compute_weighted_average()
 
         x_ticks = (self.x_data, self.x_data)
 
+        """
+        point_dict = {'0': [0.16, 1.08, 11.49, 15.97, 34.0, 17.62, 12.48, 4.55, 2.64],
+         '1': [0.0, 0.04, 1.07, 3.54, 19.19, 29.2, 27.5, 10.88, 8.6],
+         '2': [0.45, 3.6, 23.53, 20.89, 27.5, 10.62, 7.36, 3.86, 2.16],
+         '3': [0.95, 3.22, 16.46, 17.25, 25.49, 14.64, 12.47, 6.26, 2.98],
+         '4': [0.42, 1.43, 10.6, 13.19, 24.94, 17.38, 16.18, 9.14, 6.57],
+         '5': [0.1, 0.89, 8.29, 12.37, 29.61, 19.72, 16.3, 8.25, 4.46],
+         '6': [0.39, 1.38, 11.81, 13.47, 25.71, 17.07, 15.67, 8.46, 5.98],
+         '7': [0.58, 1.99, 17.27, 14.58, 25.99, 15.42, 13.05, 6.56, 4.44],
+         '8': [0.06, 0.59, 6.46, 12.19, 22.94, 26.53, 18.46, 8.6, 4.15]
+        }
+        """
+
         for test_settings in self.data:
-            labels = list(self.data[test_settings].keys())
+            labels = sorted(list(self.data[test_settings].keys()))
             y_data = [[self.data[test_settings][model][x] for x in self.x_data] for model in labels]
 
             bar_graph(x_data=self.x_data,
@@ -87,11 +102,12 @@ class RQ5_2Plotter(Plotter):
                       x_ticks=x_ticks,
                       labels=labels,
                       dest_path=os.path.join(self.dest_folder, f"{test_settings}.pdf"),
-                      bar_width=1.15,
+                      bar_width=0.80,
                       fontsize=26,
                       labelsize=24,
                       legend_params={"fontsize": 24},
-                      fig_size=(20, 10),
+                      fig_size=(23, 10),
+                      margin=0.02,
                       )
 
     def _extra(self):

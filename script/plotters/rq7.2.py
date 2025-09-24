@@ -43,6 +43,7 @@ class RQ7_2Plotter(Plotter):
 
                     for length in grouped:
                         formatted_data[model][dataset][str(length)] = sum(grouped[str(length)])
+
             self.data[test_settings] = formatted_data
 
     def _compute_average(self):
@@ -69,9 +70,16 @@ class RQ7_2Plotter(Plotter):
             if 'real' in stats:
                 sorted_stats['real'] = stats['real']
 
+            for model in sorted_stats:
+                for length in sorted_stats[model]:
+                    sorted_stats[model][length] -= sorted_stats['real'][length]
+
+            sorted_stats.pop('real')
             self.data[test_settings] = sorted_stats
 
     def _plot_data(self):
+        self._read_csv('script/plotters/src/rq7.2-baseline.csv')
+
         self._format_data()
         self._compute_average()
 
@@ -83,8 +91,10 @@ class RQ7_2Plotter(Plotter):
                             y_data=y_data,
                             labels=labels,
                             x_caption="Password Lengths",
-                            y_caption="Frequencies (%)",
-                            dest_path=os.path.join(self.dest_folder, f"{test_settings}.pdf"))
+                            y_caption="Percentage Point Difference vs Real",
+                            dest_path=os.path.join(self.dest_folder, f"{test_settings}.pdf"),
+                            legend_params={'loc': 'lower right', 'ncol': 2, 'fontsize': 10, 'frameon': True},
+                            )
 
     def _extra(self):
         pass

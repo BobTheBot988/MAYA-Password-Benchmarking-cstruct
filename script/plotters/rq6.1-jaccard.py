@@ -54,7 +54,8 @@ class RQ6_1_JaccardPlotter(Plotter):
                           vmin=0,
                           vmax=1,
                           dest_path=os.path.join(self.dest_folder, f"{test_settings}-jaccard.pdf"),
-                          cbar_kws={"label": "Jaccard Index"}
+                          cbar_kws={"label": "0 = Different, 1 = Identical", "pad": 0.05},
+                          color="Greens",
                           )
 
     def _extra(self):
