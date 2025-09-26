@@ -20,7 +20,7 @@ from models.FLA.fla_utils.dataloader import *
 def get_lower_probability_threshold(n_samples):
     n_samples = int(n_samples)
     if n_samples <= 10**6:
-        return 0.000001
+        return 0.00000001
     elif n_samples <= 10**7:
         return 0.000000001
     elif n_samples <= 5 * (10**8):
@@ -42,7 +42,7 @@ class FLA(Model):
     def load(self, file_to_load):
         try:
             self.init_model()
-            state_dicts = torch.load(file_to_load, map_location=self.device,weights_only=False)
+            state_dicts = torch.load(file_to_load, map_location=self.device)
             self.model.load_state_dict(state_dicts["model"])
             self.optimizer.load_state_dict(state_dicts["optimizer"])
             return 1
