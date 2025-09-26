@@ -20,7 +20,7 @@ from models.FLA.fla_utils.dataloader import *
 def get_lower_probability_threshold(n_samples):
     n_samples = int(n_samples)
     if n_samples <= 10**6:
-        return 0.00000001
+        return 0.000001
     elif n_samples <= 10**7:
         return 0.000000001
     elif n_samples <= 5 * (10**8):
@@ -42,7 +42,7 @@ class FLA(Model):
     def load(self, file_to_load):
         try:
             self.init_model()
-            state_dicts = torch.load(file_to_load, map_location=self.device)
+            state_dicts = torch.load(file_to_load, map_location=self.device,weights_only=False)
             self.model.load_state_dict(state_dicts["model"])
             self.optimizer.load_state_dict(state_dicts["optimizer"])
             return 1
@@ -130,7 +130,7 @@ class FLA(Model):
         }
         return eval_dict
 
-    def sample(self, evaluation_batch_size, eval_dict) -> Generator[str]:
+    def sample(self, evaluation_batch_size, eval_dict) -> Generator[str,None,None]:
         lower_probability_threshold: float = get_lower_probability_threshold(
             eval_dict["n_samples"]
         )
@@ -145,12 +145,13 @@ class FLA(Model):
         n_gen: int = guesser.complete_guessing()
 
         print(f"[I] - Generated {n_gen} passwords")
-
+        print("[I] - Creating Temporary file")
         with tempfile.NamedTemporaryFile(delete=False) as tmpfile:
             with gzip.open(eval_dict["output_file"]) as fopen:
                 shutil.copyfileobj(fopen, tmpfile)
                 temp_file_name: str = tmpfile.name
 
+        print("[I] - Opening Temporary file")
         with open(temp_file_name, "rb") as f_open:
             min_heap_n_most_prob: heapcy.Heap = heapcy.Heap(eval_dict["n_samples"])
             while True:
@@ -164,17 +165,22 @@ class FLA(Model):
                     continue
 
                 prob: float = float(parts[1].decode(encoding="ascii"))
-                heapcy.heappush(min_heap_n_most_prob, prob, offset)
+                if len(min_heap_n_most_prob) < eval_dict['n_samples']:
+                    heapcy.heappush(min_heap_n_most_prob, prob, offset)
+                else:
+                    heapcy.heappushpop(min_heap_n_most_prob,prob,offset)
 
         offsets: list[int] = []
-
+        
+        print("[I] - Getting nlargest")
         for x in heapcy.nlargest(min_heap_n_most_prob, eval_dict["n_samples"]):
             offsets.append(x[1])
 
         del min_heap_n_most_prob
-        gc.collect()
 
         eval_dict["tempfilename"] = temp_file_name
+
+        print("[I] - Returning String Generator")
         return heapcy.string_generator(temp_file_name, offsets)
 
     def guessing_strategy(self, evaluation_batch_size, eval_dict):

@@ -406,7 +406,7 @@ class Model:
         self.matches: set[str] = set()
 
         for _ in range(n_batches):
-            generated_passwords: list[str] | Generator[str] = self.sample(
+            generated_passwords: list[str] | Generator[str,None,None] = self.sample(
                 evaluation_batch_size, eval_dict
             )
             if n_batches == 1:
@@ -469,7 +469,7 @@ class Model:
         """
         raise NotImplementedError("This method should be implemented in the subclass.")
 
-    def sample(self, evaluation_batch_size, eval_dict) -> list[str] | Generator[str]:
+    def sample(self, evaluation_batch_size, eval_dict) -> list[str] | Generator[str,None,None]:
         """
         **TO BE IMPLEMENTED BY SUBCLASS.**
 
