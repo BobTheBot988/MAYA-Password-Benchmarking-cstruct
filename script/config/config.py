@@ -1,10 +1,13 @@
+from typing import TypeVar
 import yaml
 import os
 
 PATH_TO_MODEL_CONFIG = "./config/model/model_settings.yaml"
 
 CHAR_BAG_CHARS_NUMBERS_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789~!@#$%^&*(),.<>/?'\"{}[]\\|-_=+;: `"
-CHAR_BAG_CHARS_NUMBERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+CHAR_BAG_CHARS_NUMBERS = (
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+)
 CHAR_BAG_CHARS_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ~!@#$%^&*(),.<>/?'\"{}[]\\|-_=+;: `"
 CHAR_BAG_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 CHAR_BAG_NUMBERS = "0123456789"
@@ -14,7 +17,7 @@ char_bag_mapping = {
     CHAR_BAG_CHARS_NUMBERS: "c+n",
     CHAR_BAG_CHARS_SYMBOLS: "c+s",
     CHAR_BAG_CHARS: "c",
-    CHAR_BAG_NUMBERS: "n"
+    CHAR_BAG_NUMBERS: "n",
 }
 
 inverse_char_bag_mapping = {
@@ -25,6 +28,7 @@ inverse_char_bag_mapping = {
     "n": CHAR_BAG_NUMBERS,
 }
 
+
 def args_to_dict(obj):
     if isinstance(obj, dict):
         return obj
@@ -33,8 +37,10 @@ def args_to_dict(obj):
     raise ValueError("Input must be a dict or argparse.Namespace")
 
 
-def build_args_settings(dict):
+T = TypeVar("T", int, float, str)
 
+
+def build_args_settings(dict) -> dict[str, dict[str, T]]:
     return {
         "general_params": {
             "models": dict.get("models"),
@@ -43,6 +49,7 @@ def build_args_settings(dict):
             "overwrite": dict.get("overwrite"),
             "path_to_checkpoint": dict.get("path_to_checkpoint"),
             "n_samples": dict.get("n_samples"),
+            "estimate_pwd": dict.get("estimate_pwd"),
             "test_config": dict.get("test_config"),
             "guesses_file": dict.get("guesses_file"),
             "sub_samples_from_file": dict.get("sub_samples_from_file"),
@@ -72,7 +79,7 @@ def read_config(path_to_config):
     if not os.path.exists(path_to_config):
         return {}
 
-    with open(path_to_config, 'r') as file_config:
+    with open(path_to_config, "r") as file_config:
         settings = yaml.safe_load(file_config)
         return settings
 
@@ -89,16 +96,24 @@ def read_args_settings(args):
 
 
 def read_model_args(model_settings, name):
-    assert name in model_settings, f"{name} is not a valid model. Please specify a valid model name."
+    assert name in model_settings, (
+        f"{name} is not a valid model. Please specify a valid model name."
+    )
     sett = model_settings[name]
 
-    assert "path_to_class" in sett, f"You must specify a path to the class of {name}, using path_to_class."
+    assert "path_to_class" in sett, (
+        f"You must specify a path to the class of {name}, using path_to_class."
+    )
     path_to_class = sett["path_to_class"]
 
-    assert "class_name" in sett, f"You must specify the name of the class of {name}, using class_name."
+    assert "class_name" in sett, (
+        f"You must specify the name of the class of {name}, using class_name."
+    )
     class_name = sett["class_name"]
 
-    assert "path_to_config" in sett, f"You must specify a path to the config file of {name}, using path_to_config."
+    assert "path_to_config" in sett, (
+        f"You must specify a path to the config file of {name}, using path_to_config."
+    )
     path_to_config = sett["path_to_config"]
 
     return path_to_class, class_name, path_to_config
@@ -137,11 +152,18 @@ def update_settings(args_settings, test_settings):
     for test_name, test_dict in test_settings.items():
         final_settings[test_name] = {}
 
-        for param_type in ['general_params', 'pre_split_params', 'split_params',
-                           'post_split_params', 'test_params']:
+        for param_type in [
+            "general_params",
+            "pre_split_params",
+            "split_params",
+            "post_split_params",
+            "test_params",
+        ]:
             final_settings[test_name][param_type] = {}
 
-            update_values(args_settings, final_settings[test_name][param_type], param_type)
+            update_values(
+                args_settings, final_settings[test_name][param_type], param_type
+            )
             update_values(test_dict, final_settings[test_name][param_type], param_type)
 
     return final_settings
