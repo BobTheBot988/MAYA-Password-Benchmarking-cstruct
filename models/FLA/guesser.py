@@ -6,6 +6,11 @@ import gzip
 
 class Guesser():
     def __init__(self, model, params, data, lower_probability_threshold, output_file, device):
+
+class Guesser:
+    def __init__(
+        self, model, params, data, lower_probability_threshold, output_file, device
+    ):
         self.model = model
         self.data = data
         self.max_len = self.data.max_length
@@ -15,6 +20,10 @@ class Guesser():
         self.n_generated_passwords = 0
         self.generated_passwords = []
         self.PASSWORD_END = '\n'
+        self.chunk_size_guesser = self.params["eval"]["chunk_size_guesser"]
+        self.n_generated_passwords = 0
+        self.generated_passwords = []
+        self.PASSWORD_END = "\n"
         self.pwd_end_idx = self.data.tokenizer.char_indices[self.PASSWORD_END]
         self.output_file = output_file
         self.device = device
@@ -45,6 +54,9 @@ class Guesser():
 
         x_data = torch.tensor(np.array(x_data), dtype=torch.long).to(self.device)
         x_data = F.one_hot(x_data, self.data.charmap_size).to(self.device).to(torch.float32)
+        x_data = (
+            F.one_hot(x_data, self.data.charmap_size).to(self.device).to(torch.float32)
+        )
         return x_data
 
     def relevel_prediction(self, preds, astring):
@@ -57,6 +69,8 @@ class Guesser():
         elif len(astring) == self.max_len or (
                 isinstance(astring, tuple) and
                 astring_joined_len == self.max_len):
+            isinstance(astring, tuple) and astring_joined_len == self.max_len
+        ):
             multiply = np.zeros(len(preds))
             multiply[self.pwd_end_idx] = 1
             preds[self.pwd_end_idx] = 1
@@ -77,11 +91,23 @@ class Guesser():
 
     def relevel_prediction_many(self, pred_list, str_list):
         if (self.pwd_is_valid(str_list[0]) and len(str_list[0]) != self.max_len):
+            pwd = "".join(pwd)
+        pwd = pwd.strip(self.PASSWORD_END)
+        answer = (
+            all(map(lambda c: c in self.data.char_bag, pwd))
+            and len(pwd) <= self.max_len
+            and len(pwd) >= 4
+        )
+        return answer
+
+    def relevel_prediction_many(self, pred_list, str_list):
+        if self.pwd_is_valid(str_list[0]) and len(str_list[0]) != self.max_len:
             return
         for i, pred_item in enumerate(pred_list):
             self.relevel_prediction(pred_item[0], str_list[i])
 
     def conditional_probs_many(self, astring_list):
+    def conditional_probs_many(self, astring_list: list[str]):
         x_data = self.data.tokenizer.encode_many(astring_list)
         x_data = torch.tensor(np.array(x_data), dtype=torch.float32).to(self.device)
 
@@ -135,12 +161,16 @@ class Guesser():
         for i, cur_node in enumerate(node_list):
             astring, prob = cur_node
             for next_node in self.next_nodes(astring, prob, predictions[i][0], file_buffer):
+            for next_node in self.next_nodes(
+                astring, prob, predictions[i][0], file_buffer
+            ):
                 node_batch.append(next_node)
                 if len(node_batch) == self.chunk_size_guesser:
                     self.super_node_recur(node_batch, file)
                     node_batch = []
 
             if len(file_buffer) >= 1000000:
+            if len(file_buffer) >= 1_000_000:
                 file.writelines(file_buffer)
                 file_buffer.clear()
 
@@ -153,6 +183,7 @@ class Guesser():
             node_batch = []
 
     def _recur(self, file, astring='', prob=1):
+    def _recur(self, file, astring="", prob=1):
         self.super_node_recur([(astring, prob)], file)
 
     def starting_node(self, default_value):
@@ -163,5 +194,10 @@ class Guesser():
             self._recur(file, self.starting_node(astring), prob)
 
     def complete_guessing(self, start='', start_prob=1):
+    def guess(self, astring="", prob=1):
+        with gzip.open(self.output_file, "at") as file:
+            self._recur(file, self.starting_node(astring), prob)
+
+    def complete_guessing(self, start="", start_prob=1):
         self.guess(start, start_prob)
         return self.n_generated_passwords

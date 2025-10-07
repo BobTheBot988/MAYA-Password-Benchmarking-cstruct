@@ -4,6 +4,7 @@
 */*/*/*/__pycache__
 
 venv
+.venv/
 .idea/*
 
 datasets/*/*/*.pickle
@@ -19,4 +20,5 @@ parameters/*
 
 models/PassGPT/tokenizer/*
 
+script/metrics/utils/*.txt
 script/metrics/utils/*.txt
