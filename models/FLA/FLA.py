@@ -19,6 +19,7 @@ from script.test.model import Model
 from models.FLA.architecture import LSTM
 from models.FLA.guesser import Guesser
 from models.FLA.fla_utils.dataloader import *  # noqa: F403
+from script.utils.estimator import generator_tmp_file
 
 
 def get_lower_probability_threshold(n_samples):
@@ -46,7 +47,9 @@ class FLA(Model):
     def load(self, file_name):
         try:
             self.init_model()
-            state_dicts = torch.load(file_name, map_location=self.device)
+            state_dicts = torch.load(
+                file_name, map_location=self.device, weights_only=False
+            )
             self.model.load_state_dict(state_dicts["model"])
             self.optimizer.load_state_dict(state_dicts["optimizer"])
             return 1
@@ -126,12 +129,16 @@ class FLA(Model):
 
             current_epoch += 1
 
-    def eval_init(self, n_samples: int, evaluation_batch_size):
+    def eval_init(self, n_samples: int, evaluation_batch_size) -> dict[str, Model.T]:
         self.model.eval()
+        if n_samples != self.n_samples:
+            raise ValueError("The value of n_samples is different")
+
         eval_dict = {
-            "n_samples": n_samples,
+            "n_samples": self.n_samples,
             "output_file": os.path.join(self.path_to_guesses_dir, "total_guesses.gz"),
         }
+
         return eval_dict
 
     def get_string_probability(
@@ -139,6 +146,7 @@ class FLA(Model):
     ) -> float:
         if not guess:
             raise ValueError("Must pass a guesser")
+
         return guess.batch_prob([string])[0]
 
     def guesser_build(self, eval_dict: Dict[str, Model.T]) -> Guesser:
@@ -153,9 +161,7 @@ class FLA(Model):
             device=self.device,
         )
 
-    def montecarlo_estimation(
-        self, my_string: str, eval_dict: Dict[str, Model.T]
-    ) -> float:
+    def montecarlo_estimation(self) -> float:
         """
         my_array: probabilities sorted in DESCENDING order
         target: p(alpha)
@@ -163,7 +169,8 @@ class FLA(Model):
         """
 
         # Needed for stability      target: float = -log2(self.get_string_probability(my_string, guesser))
-
+        print("[I] entered the function in FLA.")
+        eval_dict: dict[str, Model.T] = self.eval_init(0, 0)
         guesser = self.guesser_build(eval_dict)
 
         assert isinstance(eval_dict["output_file"], str)
@@ -177,13 +184,14 @@ class FLA(Model):
 
         print("[I] - Creating Temporary file")
 
-        target: float = self.get_string_probability(my_string, guesser)
+        target: float = self.get_string_probability(self.estimate_pwd, guesser)
         with tempfile.TemporaryFile() as tmpfile:
             with gzip.open(eval_dict["output_file"]) as fopen:
                 shutil.copyfileobj(fopen, tmpfile)
 
-            my_array: Generator[float, None, None] = self.generator_tmp_file(tmpfile)
+            my_array: Generator[float, None, None] = generator_tmp_file(tmpfile)
             size_of_array: int = get_n_of_lines(tmpfile)
+            assert size_of_array > 0
             my_sum: float = 0
             prob: float = 0
 
@@ -196,32 +204,6 @@ class FLA(Model):
                 my_sum += 1.0 / prob
 
         return my_sum / size_of_array
-
-    def generator_tmp_file(
-        self, tmpfile: BufferedRandom, i: int = 0, encoding: str = "ascii"
-    ) -> Generator[float, None, None]:
-        while True:
-            line: bytes = tmpfile.readline()
-            if len(line) == 0 or line is EOFError:
-                break
-
-            if not line:
-                yield 0.0  # offset past EOF
-                continue
-            # take bytes up to first space (or whole line), strip newline
-            i = line.find(b" ")
-            # take byets from space onwards so only the probability
-            token = line[i + 1 :] if i != -1 else line.rstrip(b"\r\n")
-            # Conversion needed to maintain stability this is according to the ccs15 paper on the montecarlo estimation
-            """
-            'The probabilities that we compute can be very small and may underflow:
-            to avoid such problems, we store and compute the base-2 logarithms of probabilities rather than probabilities themselves'
-
-            ccs15 page 5, implementation details https://www.dcs.gla.ac.uk/~maurizio/Publications/ccs15.pdf
-            """
-            # yield -log2(float(token.decode(encoding, errors="replace")))
-
-            yield float(token.decode(encoding, errors="replace"))
 
     def generate_file(self, guesser: Guesser) -> int:
         return guesser.complete_guessing()

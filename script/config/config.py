@@ -1,4 +1,4 @@
-from typing import TypeVar
+from typing import TypeVar, Any
 import yaml
 import os
 
@@ -189,7 +189,7 @@ def update_settings(args_settings, test_settings):
     return final_settings
 
 
-def get_keys_and_values(d):
+def get_keys_and_values(d) -> dict[Any, Any]:
     result = {}
     for value in d.values():
         if isinstance(value, dict):

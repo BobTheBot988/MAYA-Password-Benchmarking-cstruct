@@ -117,16 +117,19 @@ class Tester:
         )
         return self._get_preprocessing_functions(all_functions)
 
-    def _prepare_script_input(self):
-        arg_tmp = get_keys_and_values(self.args_settings)
-        final_settings = get_keys_and_values(self.test_settings)
+    def _prepare_script_input(self) -> dict:
+        arg_tmp: dict = get_keys_and_values(self.args_settings)  # noqa: F405
+        final_settings: dict = get_keys_and_values(self.test_settings)  # noqa: F405
 
         for setting in final_settings:
             if setting in arg_tmp:
                 final_settings[setting] = arg_tmp[setting]
+        print(f"""self.args_settings is : {self.args_settings}
+                  Arg_tmp is : {arg_tmp}
+                  The final settings are:{final_settings}""")
         return final_settings
 
-    def _import_script(self, path):
+    def _import_script(self, path: str) -> ModuleType:
         module_path = os.path.abspath(path)
         module_name = os.path.splitext(os.path.basename(module_path))[0]
 
@@ -490,6 +493,7 @@ class Tester:
             "test_hash": str(test_hash),
             "config_file": str(path_to_config),
             "max_length": str(test_settings["max_length"]),
+            "estimate_pwd": test_settings.get("estimate_pwd", False),
             "n_samples": test_settings["n_samples"],
             "output_path": str(output_path),
             "path_to_checkpoint": test_settings.get("path_to_checkpoint", False),
@@ -506,7 +510,7 @@ class Tester:
         print(f"Starting {model_name}:")
         model = model_class(settings)
         rows = model.written_rows
-
+        assert self.written_rows is not None
         for path in rows:
             if path not in self.written_rows:
                 self.written_rows[path] = []
@@ -621,5 +625,11 @@ def make_hashable(v):
     elif isinstance(v, dict):
         return tuple(sorted((k, make_hashable(vv)) for k, vv in v.items()))
     return v
+<<<<<<< ours
+<<<<<<< HEAD
     return v
 
+=======
+>>>>>>> 80f3b4f (Correted the implementation)
+=======
+>>>>>>> theirs
