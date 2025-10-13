@@ -1,13 +1,11 @@
 import gc
 import gzip
 
-# from math import log2
-from math import log2
 import os
 import shutil
 import tempfile
 from io import BufferedRandom
-from typing import Dict, Generator, Iterable
+from typing import Dict, Generator
 
 import heapcy
 import numpy as np
@@ -159,71 +157,24 @@ class FLA(Model):
             device=self.device,
         )
 
-    def montecarlo_estimation(self) -> float:
-        """
-        my_array: probabilities sorted in DESCENDING order
-        target: p(alpha)
-        returns: (1/n) * sum_{i: A[i] > target} 1/A[i]
-        """
-
-        # Needed for stability      target: float = -log2(self.get_string_probability(my_string, guesser))
-        print("[I] entered the function in FLA.")
-        eval_dict: dict[str, Model.T] = self.eval_init(0, 0)
-        eval_dict["estimate_pwd"] = self.estimate_pwd
-        guesser = self.guesser_build(eval_dict)
-        assert isinstance(eval_dict["n_samples"], int)
-        if eval_dict["n_samples"] > 100_000:
-            raise ValueError(
-                "The number of samples for the montecarlo_estimation should not be higher than 10**5."
-            )
-        elif eval_dict["n_samples"] < 1_000:
-            raise ValueError(
-                "The number of samples for the montecarlo_estimation should not be lowert than 10**3."
-            )
-
-        generator: Generator[str, None, None] | Generator[str, float, None] = (
-            self.sample(0, eval_dict, guesser)
-        )
-
-        print("[I] - Creating Temporary file")
-        assert guesser is not None
-        target: float = guesser.password_probability(eval_dict["estimate_pwd"], True)
-
-        my_sum: float = 0
-        size_of_array: int = 0
-
-        # This can be optimized in O(logn) if the file already exists, but in doing so we will use O(n) memory
-        for _, prob in generator:
-            assert isinstance(prob, float)
-            prob = -log2(prob)
-            if prob == 0.0:
-                return -1.0
-            if prob > target:
-                break
-            my_sum += 1.0 / prob
-            size_of_array += 1
-
-        return my_sum / (size_of_array if size_of_array > 0 else 1)
+    def get_string_probability(self) -> float:
+        guesser: Guesser = self.guesser_build(self.eval_init(0, 0))
+        return guesser.password_probability(self.estimate_pwd, True)
 
     def generate_file(self, guesser: Guesser) -> int:
         return guesser.complete_guessing()
 
-    def sample(
-        self, evaluation_batch_size, eval_dict, guesser: Guesser | None = None
-    ) -> Generator[str, None, None] | Generator[str, float, None]:
-        if not guesser:
-            guesser = self.guesser_build(eval_dict)
-        print("[I] - Generating strings")
-        n_gen: int = guesser.complete_guessing()
-
-        print(f"[I] - Generated {n_gen} passwords")
+    def temp_file_generate(self, eval_dict) -> str:
         print("[I] - Creating Temporary file")
         with tempfile.NamedTemporaryFile(delete=False) as tmpfile:
             with gzip.open(eval_dict["output_file"]) as fopen:
                 shutil.copyfileobj(fopen, tmpfile)
                 temp_file_name: str = tmpfile.name
+        return temp_file_name
 
-        print("[I] - Opening Temporary file")
+    def generate_heap(
+        self, temp_file_name: str, eval_dict: Dict[str, Model.T]
+    ) -> heapcy.Heap:
         with open(temp_file_name, "rb") as f_open:
             print(f"[I] - Size of heap will be:{eval_dict['n_samples']}")
             min_heap_n_most_prob: heapcy.Heap = heapcy.Heap(eval_dict["n_samples"])
@@ -244,19 +195,53 @@ class FLA(Model):
                 else:
                     heapcy.heappushpop(min_heap_n_most_prob, prob, offset)
 
+        return min_heap_n_most_prob
+
+    def sample(
+        self,
+        evaluation_batch_size,
+        eval_dict: Dict[str, Model.T],
+        guesser: Guesser | None = None,
+    ) -> Generator[str, None, None] | Generator[tuple[str, float], None, None]:
+        if not guesser:
+            guesser = self.guesser_build(eval_dict)
+
+        print("[I] - Generating strings")
+        n_gen: int = guesser.complete_guessing()
+
+        print(f"[I] - Generated {n_gen} passwords")
+
+        print("[I] - Opening Temporary file")
+        temp_file_name: str = self.temp_file_generate(eval_dict)
+
+        min_heap_n_most_prob: heapcy.Heap = self.generate_heap(
+            temp_file_name, eval_dict
+        )
+
         offsets: list[int] = []
 
         print("[I] - Getting nlargest")
         for x in heapcy.nlargest(min_heap_n_most_prob, eval_dict["n_samples"]):
+            print(f"[I] - Offset->{x[1]}")
             offsets.append(x[1])
 
         del min_heap_n_most_prob
         gc.collect()
 
         eval_dict["tempfilename"] = temp_file_name
+
+        gen_str_float: Generator[tuple[str, float], None, None] = (
+            heapcy.string_float_generator(temp_file_name, offsets)
+        )
+
+        with gzip.open(self.path_to_samples_file, "wt") as file:
+            for t in gen_str_float:
+                print(t)
+                file.write(f"{t[0]} {t[1]}\n")
+
         if eval_dict.get("estimate_pwd") is not None:
             print("[I] - Returning String Float Generator")
-            return heapcy.string_float_generator(temp_file_name, offsets)
+            return gen_str_float
 
         print("[I] - Returning String Generator")
         return heapcy.string_generator(temp_file_name, offsets)
