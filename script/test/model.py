@@ -1,22 +1,3 @@
-import math
-import os
-import gzip
-import time
-import pickle
-from typing import Generator, Literal
-from tqdm import tqdm
-import shutil
-import torch
-import glob
-
-from datetime import timedelta
-from script.utils.file_operations import redirect_stdout, redirect_stderr, write_to_csv
-from script.utils.fast_eval import check_skip_generation, sub_sample, fast_eval
-from script.utils.memory_watcher import MemoryWatcher
-from script.config.config import read_config
-
-
-class Model:
 import glob
 import gzip
 import math
@@ -64,7 +45,9 @@ class Model:
         status = self._run_embedding()
 
         if not status and self.estimate_pwd is not None:
-            print("[I] Started the estimation of the given password")
+            print(
+                f"[I] - Started the estimation of the given password:{self.estimate_pwd}"
+            )
             self._run_training_and_estim()
             return
 
@@ -488,7 +471,7 @@ class Model:
 
     def evaluate(
         self, n_samples, evaluation_batch_sizedation_mode=False, validation_mode=False
-    ):
+    ) -> tuple[int, str, int]:
         print(f"Generating {n_samples} passwords...")
         save_every = 1000000
         save_guesses = self.save_guesses and not validation_mode
@@ -509,9 +492,8 @@ class Model:
         self.matches: set[str] = set()
 
         for _ in range(n_batches):
-            generated_passwords: list[str] | Generator[str] = self.sample(
-            generated_passwords: list[str] | Generator[str, None, None] = self.sample(
-                evaluation_batch_size, eval_dict
+            generated_passwords: list[str] | Generator[str] | Generator[str, float] = (
+                self.sample(evaluation_batch_size, eval_dict)
             )
             if n_batches == 1:
                 for sample in generated_passwords:
@@ -554,7 +536,6 @@ class Model:
         print(f"{n_matches} matches found ({match_percentage} of test set).")
         return n_matches, match_percentage, test_size
 
-    def eval_init(self, n_samples, evaluation_batch_size):
     def eval_init(self, n_samples, evaluation_batch_size) -> Dict[str, T]:
         """
         **TO BE IMPLEMENTED BY SUBCLASS.**
@@ -574,10 +555,9 @@ class Model:
         """
         raise NotImplementedError("This method should be implemented in the subclass.")
 
-    def sample(self, evaluation_batch_size, eval_dict) -> list[str] | Generator[str]:
     def sample(
         self, evaluation_batch_size, eval_dict
-    ) -> list[str] | Generator[str, None, None]:
+    ) -> list[str] | Generator[str, None, None] | Generator[str, float, None]:
         """
         **TO BE IMPLEMENTED BY SUBCLASS.**
 

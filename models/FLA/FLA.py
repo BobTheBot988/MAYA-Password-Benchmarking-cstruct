@@ -1,30 +1,33 @@
-from io import BufferedRandom
+import gc
+import gzip
 
 # from math import log2
+from math import log2
 import os
-from typing import Generator, Dict
+import shutil
+import tempfile
+from io import BufferedRandom
+from typing import Dict, Generator, Iterable
+
+import heapcy
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.optim import Optimizer
-import numpy as np
 from tqdm import tqdm
-import gc
-import gzip
-import tempfile
-import shutil
-import heapcy
 
 from script.test.model import Model
 
-from models.FLA.architecture import LSTM
-from models.FLA.guesser import Guesser
-from models.FLA.fla_utils.dataloader import *  # noqa: F403
-from script.utils.estimator import generator_tmp_file
+from .architecture import LSTM
+from .fla_utils.dataloader import DataLoader
+from .guesser import Guesser
 
 
 def get_lower_probability_threshold(n_samples):
     n_samples = int(n_samples)
-    if n_samples <= 10**6:
+    if n_samples <= 10**5:
+        return 0.000001
+    elif n_samples <= 10**6:
         return 0.00000001
     elif n_samples <= 10**7:
         return 0.000000001
@@ -41,7 +44,7 @@ class FLA(Model):
 
         super().__init__(settings)
 
-    def prepare_data(self, train_passwords, test_passwords, max_length):
+    def prepare_data(self, train_passwords, test_passwords, max_length) -> DataLoader:
         return DataLoader(train_passwords, test_passwords, max_length, self.params)  # noqa: F405
 
     def load(self, file_name):
@@ -131,23 +134,18 @@ class FLA(Model):
 
     def eval_init(self, n_samples: int, evaluation_batch_size) -> dict[str, Model.T]:
         self.model.eval()
-        if n_samples != self.n_samples:
-            raise ValueError("The value of n_samples is different")
-
+        """if n_samples != self.n_samples:
+            raise ValueError(
+                f"The value of n_samples is different:\nn_samples:{n_samples},self.n_samples:{self.n_samples}"
+            )
+        """
         eval_dict = {
             "n_samples": self.n_samples,
             "output_file": os.path.join(self.path_to_guesses_dir, "total_guesses.gz"),
+            "sample_file": os.path.join(self.path_to_guesses_dir, "samples"),
         }
 
         return eval_dict
-
-    def get_string_probability(
-        self, string: str, guess: Guesser | None = None
-    ) -> float:
-        if not guess:
-            raise ValueError("Must pass a guesser")
-
-        return guess.batch_prob([string])[0]
 
     def guesser_build(self, eval_dict: Dict[str, Model.T]) -> Guesser:
         return Guesser(
@@ -171,48 +169,51 @@ class FLA(Model):
         # Needed for stability      target: float = -log2(self.get_string_probability(my_string, guesser))
         print("[I] entered the function in FLA.")
         eval_dict: dict[str, Model.T] = self.eval_init(0, 0)
+        eval_dict["estimate_pwd"] = self.estimate_pwd
         guesser = self.guesser_build(eval_dict)
+        assert isinstance(eval_dict["n_samples"], int)
+        if eval_dict["n_samples"] > 100_000:
+            raise ValueError(
+                "The number of samples for the montecarlo_estimation should not be higher than 10**5."
+            )
+        elif eval_dict["n_samples"] < 1_000:
+            raise ValueError(
+                "The number of samples for the montecarlo_estimation should not be lowert than 10**3."
+            )
 
-        assert isinstance(eval_dict["output_file"], str)
-        if not os.path.exists(eval_dict["output_file"]):
-            assert isinstance(eval_dict["n_samples"], int)
-            if eval_dict["n_samples"] > 100_000:
-                raise ValueError(
-                    "The number of samples for the montecarlo_estimation should not be higher than 10**5."
-                )
+        generator: Generator[str, None, None] | Generator[str, float, None] = (
             self.sample(0, eval_dict, guesser)
+        )
 
         print("[I] - Creating Temporary file")
+        assert guesser is not None
+        target: float = guesser.password_probability(eval_dict["estimate_pwd"], True)
 
-        target: float = self.get_string_probability(self.estimate_pwd, guesser)
-        with tempfile.TemporaryFile() as tmpfile:
-            with gzip.open(eval_dict["output_file"]) as fopen:
-                shutil.copyfileobj(fopen, tmpfile)
+        my_sum: float = 0
+        size_of_array: int = 0
 
-            my_array: Generator[float, None, None] = generator_tmp_file(tmpfile)
-            size_of_array: int = get_n_of_lines(tmpfile)
-            assert size_of_array > 0
-            my_sum: float = 0
-            prob: float = 0
+        # This can be optimized in O(logn) if the file already exists, but in doing so we will use O(n) memory
+        for _, prob in generator:
+            assert isinstance(prob, float)
+            prob = -log2(prob)
+            if prob == 0.0:
+                return -1.0
+            if prob > target:
+                break
+            my_sum += 1.0 / prob
+            size_of_array += 1
 
-            # This can be optimized in O(logn) if the file already exists, but in doing so we will use O(n) memory
-            for prob in my_array:
-                if prob == 0.0:
-                    return -1.0
-                if prob <= target:
-                    break
-                my_sum += 1.0 / prob
-
-        return my_sum / size_of_array
+        return my_sum / (size_of_array if size_of_array > 0 else 1)
 
     def generate_file(self, guesser: Guesser) -> int:
         return guesser.complete_guessing()
 
     def sample(
         self, evaluation_batch_size, eval_dict, guesser: Guesser | None = None
-    ) -> Generator[str, None, None]:
+    ) -> Generator[str, None, None] | Generator[str, float, None]:
         if not guesser:
             guesser = self.guesser_build(eval_dict)
+        print("[I] - Generating strings")
         n_gen: int = guesser.complete_guessing()
 
         print(f"[I] - Generated {n_gen} passwords")
@@ -224,8 +225,8 @@ class FLA(Model):
 
         print("[I] - Opening Temporary file")
         with open(temp_file_name, "rb") as f_open:
+            print(f"[I] - Size of heap will be:{eval_dict['n_samples']}")
             min_heap_n_most_prob: heapcy.Heap = heapcy.Heap(eval_dict["n_samples"])
-
             while True:
                 offset: int = f_open.tell()
                 line: bytes = f_open.readline()
@@ -237,9 +238,6 @@ class FLA(Model):
                     continue
 
                 prob: float = float(parts[1].decode(encoding="ascii"))
-                heapcy.heappush(min_heap_n_most_prob, prob, offset)
-
-        offsets: list[int] = []
 
                 if len(min_heap_n_most_prob) < eval_dict["n_samples"]:
                     heapcy.heappush(min_heap_n_most_prob, prob, offset)
@@ -256,8 +254,9 @@ class FLA(Model):
         gc.collect()
 
         eval_dict["tempfilename"] = temp_file_name
-
-        eval_dict["tempfilename"] = temp_file_name
+        if eval_dict.get("estimate_pwd") is not None:
+            print("[I] - Returning String Float Generator")
+            return heapcy.string_float_generator(temp_file_name, offsets)
 
         print("[I] - Returning String Generator")
         return heapcy.string_generator(temp_file_name, offsets)
@@ -269,7 +268,6 @@ class FLA(Model):
         gc.collect()
         os.remove(eval_dict["output_file"])
         os.remove(eval_dict["tempfilename"])
-        pass
 
 
 def get_n_of_lines(filename: BufferedRandom) -> int:

@@ -1,13 +1,47 @@
 # MAYA: Addressing Inconsistencies in Generative Password Guessing through a Unified Benchmark
 
-This repository contains the official implementation of the paper [*MAYA: Addressing Inconsistencies in Generative Password Guessing through a Unified Benchmark*](https://www.arxiv.org/abs/2504.16651).
+<!--toc:start-->
+
+- [MAYA: Addressing Inconsistencies in Generative Password Guessing through a Unified Benchmark](#maya-addressing-inconsistencies-in-generative-password-guessing-through-a-unified-benchmark)
+  - [Authors & Contacts](#authors-contacts)
+  - [Citation](#citation)
+  - [Overview](#overview)
+  - [Getting Started](#getting-started)
+    - [Pre-Requisites](#pre-requisites)
+    - [Dependencies](#dependencies)
+    - [Reproducing Our Environment](#reproducing-our-environment)
+    - [Datasets](#datasets)
+      - [Downloading Datasets](#downloading-datasets)
+      - [Available Datasets](#available-datasets)
+      - [Downloading Specific Datasets](#downloading-specific-datasets)
+  - [Quick Testing](#quick-testing)
+    - [How to Run a Predefined Experiment](#how-to-run-a-predefined-experiment)
+    - [Automatic Plotting](#automatic-plotting)
+  - [Parameters](#parameters)
+    - [How to Configure Parameters](#how-to-configure-parameters)
+    - [Available Parameters](#available-parameters)
+    - [CLI Usage Examples](#cli-usage-examples)
+      - [Example 1 – Modify RQ1: Run PassGAN and PassFlow on RockYou, generating 10M, 100M, and 500M passwords, with maximum password lengths of 10 and 12](#example-1-modify-rq1-run-passgan-and-passflow-on-rockyou-generating-10m-100m-and-500m-passwords-with-maximum-password-lengths-of-10-and-12)
+      - [Example 1 – Modify RQ2. Running only PassGPT](#example-1-modify-rq2-running-only-passgpt)
+      - [Example 2 - Modify RQ3. Train PLR-GAN on 1M, 2M samples and 50% of LinkedIn. Generate 10M passwords, evaluate also at 1M, and fix max length to 12](#example-2-modify-rq3-train-plr-gan-on-1m-2m-samples-and-50-of-linkedin-generate-10m-passwords-evaluate-also-at-1m-and-fix-max-length-to-12)
+      - [Example 3 - Modify RQ4.1. Train PLR-GAN on RockYou and test on LinkedIn. Generate 500M passwords and fix max length to 8](#example-3-modify-rq41-train-plr-gan-on-rockyou-and-test-on-linkedin-generate-500m-passwords-and-fix-max-length-to-8)
+      - [Example 4 - Modify RQ5.1. Train PassGPT on Libero and 000webhost, test on the top 5%, 10%, and bottom 90% frequent passwords. Generate 500M passwords, max length 12](#example-4-modify-rq51-train-passgpt-on-libero-and-000webhost-test-on-the-top-5-10-and-bottom-90-frequent-passwords-generate-500m-passwords-max-length-12)
+      - [Example 5 - Modify RQ6.1-jaccard. Compute the Jaccard index only between PassGAN, PassFlow, and FLA](#example-5-modify-rq61-jaccard-compute-the-jaccard-index-only-between-passgan-passflow-and-fla)
+      - [Example 6 - Modify RQ6.2. Perform a multi-model attack using PassGAN, PassFlow, FLA, and PassGPT, evaluating only on RockYou, on maximum password length 8 and 10](#example-6-modify-rq62-perform-a-multi-model-attack-using-passgan-passflow-fla-and-passgpt-evaluating-only-on-rockyou-on-maximum-password-length-8-and-10)
+    - [YAML Configuration Files](#yaml-configuration-files)
+      - [Example: Training and Testing Scenario (RQ1, RQ3-RQ5.1)](#example-training-and-testing-scenario-rq1-rq3-rq51)
+      - [Example: Evaluation-Only Scenario (RQ2, RQ5.2-RQ7.3)](#example-evaluation-only-scenario-rq2-rq52-rq73)
+  - [Customization](#customization) - [How To Add a Custom Dataset](#how-to-add-a-custom-dataset) - [How To Add an Evaluation Scenario](#how-to-add-an-evaluation-scenario) - [Adding or Modifying Preprocessing Functions](#adding-or-modifying-preprocessing-functions) - [How To Add a Model](#how-to-add-a-model)
+  <!--toc:end-->
+
+This repository contains the official implementation of the paper [_MAYA: Addressing Inconsistencies in Generative Password Guessing through a Unified Benchmark_](https://www.arxiv.org/abs/2504.16651).
 
 ## Authors & Contacts
 
-- **William Corrias**: | [ORCID](https://orcid.org/0009-0006-2270-9266) | [corrias@di.uniroma1.it](mailto:corrias@di.uniroma1.it) - Sapienza University of Rome. 
-- **Fabio De Gaspari**: | [ORCID](https://orcid.org/0000-0001-9718-1044) | [degaspari@di.uniroma1.it](mailto:degaspari@di.uniroma1.it) - Sapienza University of Rome. 
-- **Dorjan Hitaj**: | [ORCID](https://orcid.org/0000-0001-5686-3831) | [hitaj.d@di.uniroma1.it](mailto:hitaj.d@di.uniroma1.it) - Sapienza University of Rome. 
-- **Luigi V. Mancini**: | [ORCID](https://orcid.org/0000-0003-4859-2191) | [mancini@di.uniroma1.it](mailto:mancini@di.uniroma1.it) - Sapienza University of Rome. 
+- **William Corrias**: | [ORCID](https://orcid.org/0009-0006-2270-9266) | [corrias@di.uniroma1.it](mailto:corrias@di.uniroma1.it) - Sapienza University of Rome.
+- **Fabio De Gaspari**: | [ORCID](https://orcid.org/0000-0001-9718-1044) | [degaspari@di.uniroma1.it](mailto:degaspari@di.uniroma1.it) - Sapienza University of Rome.
+- **Dorjan Hitaj**: | [ORCID](https://orcid.org/0000-0001-5686-3831) | [hitaj.d@di.uniroma1.it](mailto:hitaj.d@di.uniroma1.it) - Sapienza University of Rome.
+- **Luigi V. Mancini**: | [ORCID](https://orcid.org/0000-0003-4859-2191) | [mancini@di.uniroma1.it](mailto:mancini@di.uniroma1.it) - Sapienza University of Rome.
 
 ## Citation
 
@@ -24,7 +58,7 @@ This repository contains the official implementation of the paper [*MAYA: Addres
 
 ## Overview
 
-MAYA is a unified, customizable, plug-and-play benchmarking framework designed to facilitate the systematic characterization and benchmarking of generative password-guessing models in the context of trawling attacks. 
+MAYA is a unified, customizable, plug-and-play benchmarking framework designed to facilitate the systematic characterization and benchmarking of generative password-guessing models in the context of trawling attacks.
 
 ## Getting Started
 
@@ -32,7 +66,9 @@ MAYA is a unified, customizable, plug-and-play benchmarking framework designed t
 
 Make sure you have Python 3.8 or newer installed. Earlier versions might not be compatible.
 
-### Dependencies 
+(There's also [mise](https://mise.jdx.dev/installing-mise.html) support for ease of use)
+
+### Dependencies
 
 All necessary packages are listed in the requirements.txt file in the root directory.
 
@@ -40,6 +76,7 @@ All necessary packages are listed in the requirements.txt file in the root direc
 accelerate
 argparse
 gdown
+heapcy
 datasets
 py7zr
 pyyaml
@@ -92,25 +129,25 @@ Running the script without any arguments will automatically download all availab
 
 #### Available Datasets
 
-* Rockyou
-* myspace
-* phpbb
-* LinkedIn
-* Hotmail
-* Mail.ru
-* Yandex
-* Yahoo
-* Faith Writer
-* Hak5
-* Zomato
-* 000webhost
-* Singles.org
-* Taobao
-* Gmail
-* Mate1.com
-* Twitter
-* Ashley Madison
-* Libero
+- Rockyou
+- myspace
+- phpbb
+- LinkedIn
+- Hotmail
+- Mail.ru
+- Yandex
+- Yahoo
+- Faith Writer
+- Hak5
+- Zomato
+- 000webhost
+- Singles.org
+- Taobao
+- Gmail
+- Mate1.com
+- Twitter
+- Ashley Madison
+- Libero
 
 #### Downloading Specific Datasets
 
@@ -134,8 +171,8 @@ python3 main.py --test_config config/test/rqX.yaml
 
 Replace X with the number of the research question you want to reproduce (e.g., rq1, rq2, rq3, rq4.1, rq4.2, rq5.1, rq5.2, rq5.3, rq6.1-jaccard, rq6.1-mergeability, rq6.2, rq7.2, rq7.3).
 
-Each configuration file contains all the necessary information to reproduce a specific experimental setting. 
-    
+Each configuration file contains all the necessary information to reproduce a specific experimental setting.
+
 You can also use these files as templates to create your own custom experiments.
 
 ### Automatic Plotting
@@ -172,26 +209,26 @@ CLI arguments are primarily used to override values defined in the --test_config
 ### Available Parameters
 
 ```
-Usage: ./main.py  
-            --test_config PATH  
-            [--models STR [STR ...]] 
-            [--train_datasets STR [STR ...]] 
-            [--test_datasets STR [STR ...]] 
-            [--n_samples INT [INT ...]] 
-            [--max_length INT [INT ...]] 
-            [--display_logs {0,1}] 
-            [--autoload {0,1}] 
-            [--overwrite {0,1}] 
+Usage: ./main.py
+            --test_config PATH
+            [--models STR [STR ...]]
+            [--train_datasets STR [STR ...]]
+            [--test_datasets STR [STR ...]]
+            [--n_samples INT [INT ...]]
+            [--max_length INT [INT ...]]
+            [--display_logs {0,1}]
+            [--autoload {0,1}]
+            [--overwrite {0,1}]
             [--save_guesses {0,1] Default: 1
             [--save_matches {0,1] Default: 1
-            [--path_to_checkpoint PATH] 
-            [--char_bag STR [STR ...]] 
-            [--train_split_percentage INT [INT ...]] 
-            [--train_chunk_percentage INT [INT ...]] 
-            [--test_frequency INT [INT ...]] 
-            [--guesses_file PATH [PATH ...]] 
-            [--sub_samples_from_file PATH [PATH ...]] 
-            [--data_to_embed PATH [PATH ...]] 
+            [--path_to_checkpoint PATH]
+            [--char_bag STR [STR ...]]
+            [--train_split_percentage INT [INT ...]]
+            [--train_chunk_percentage INT [INT ...]]
+            [--test_frequency INT [INT ...]]
+            [--guesses_file PATH [PATH ...]]
+            [--sub_samples_from_file PATH [PATH ...]]
+            [--data_to_embed PATH [PATH ...]]
 ```
 
 Many parameters support multiple values. When you pass multiple values (e.g., --models passgan passflow), the program will automatically generate all valid combinations and run each experiment sequentially.
@@ -205,8 +242,8 @@ Here's a detailed explanation of each parameter:
 - **--train_datasets STR [STR ...]**: One or more dataset names to be used for training.
 - **--test_datasets STR [STR ...]**: One or more dataset names to be used for testing. Do not pass this option if you intend to use the same dataset for both training and testing.
 - **--n_samples INT [INT ...]**: Thresholds for evaluation. The model will generate the largest value, then slice the output for the others.
-- **--max_length INT [INT ...]**: Maximum password length. 
-- **--display_logs {0,1}**: Flag. Show logs in the console if set. Otherwise, logs are redirected to the logs/ directory. 
+- **--max_length INT [INT ...]**: Maximum password length.
+- **--display_logs {0,1}**: Flag. Show logs in the console if set. Otherwise, logs are redirected to the logs/ directory.
 - **--autoload {0,1}**: Flag. Automatically loads the latest available checkpoint (checkpointX.pt, highest X). Use only if you’re not specifying --path_to_checkpoint.
 - **--overwrite {0,1}**: Flag. If set, reruns tests even if results already exist.
 - **--save_guesses {0,1}**: Flag. If set to 1, all generated passwords will be saved to disk after sampling. Default: 1.
@@ -226,38 +263,44 @@ CLI arguments are specifically designed to override values defined in your --tes
 
 Here are some examples illustrating how to use CLI arguments to customize predefined scenarios:
 
-#### Example 1 – Modify RQ1: Run PassGAN and PassFlow on RockYou, generating 10M, 100M, and 500M passwords, with maximum password lengths of 10 and 12.
+#### Example 1 – Modify RQ1: Run PassGAN and PassFlow on RockYou, generating 10M, 100M, and 500M passwords, with maximum password lengths of 10 and 12
 
 ```
 python3 ./main.py --test_config config/test/rq1.yaml --models passgan passflow --train_datasets rockyou --n_samples 10000000 100000000 500000000 --max_length 10 12 --autoload 1
 ```
 
-#### Example 1 – Modify RQ2. Running only PassGPT. #### 
+#### Example 1 – Modify RQ2. Running only PassGPT
+
 ```
 python3 ./main.py --test_config config/test/rq2.yaml --models passgpt
 ```
 
-#### Example 2 - Modify RQ3. Train PLR-GAN on 1M, 2M samples and 50% of LinkedIn. Generate 10M passwords, evaluate also at 1M, and fix max length to 12: #### 
+#### Example 2 - Modify RQ3. Train PLR-GAN on 1M, 2M samples and 50% of LinkedIn. Generate 10M passwords, evaluate also at 1M, and fix max length to 12
+
 ```
 python3 ./main.py --test_config config/test/rq3.yaml --models plrgan --train_datasets linkedin --train_chunk_percentage 50 1000000 2000000 --n_samples 10000000 1000000 --max_length 12 --autoload 1
 ```
 
-#### Example 3 - Modify RQ4.1. Train PLR-GAN on RockYou and test on LinkedIn. Generate 500M passwords and fix max length to 8: #### 
+#### Example 3 - Modify RQ4.1. Train PLR-GAN on RockYou and test on LinkedIn. Generate 500M passwords and fix max length to 8
+
 ```
 python3 ./main.py --test_config config/test/rq4.1.yaml --models plrgan --train_datasets rockyou --test_datasets linkedin --n_samples 500000000 --max_length 8 --autoload 1
 ```
 
-#### Example 4 - Modify RQ5.1. Train PassGPT on Libero and 000webhost, test on the top 5%, 10%, and bottom 90% frequent passwords. Generate 500M passwords, max length 12: #### 
+#### Example 4 - Modify RQ5.1. Train PassGPT on Libero and 000webhost, test on the top 5%, 10%, and bottom 90% frequent passwords. Generate 500M passwords, max length 12
+
 ```
 python3 ./main.py --test_config config/test/rq5.1.yaml --models passgpt --train_datasets 000webhost libero --test_frequency 5 10 -90 --n_samples 500000000 --max_length 12 --autoload 1
 ```
 
-#### Example 5 - Modify RQ6.1-jaccard. Compute the Jaccard index only between PassGAN, PassFlow, and FLA: #### 
+#### Example 5 - Modify RQ6.1-jaccard. Compute the Jaccard index only between PassGAN, PassFlow, and FLA
+
 ```
-python3 ./main.py --test_config config/test/rq6.1-jaccard.yaml --models passgan passflow fla 
+python3 ./main.py --test_config config/test/rq6.1-jaccard.yaml --models passgan passflow fla
 ```
 
-#### Example 6 - Modify RQ6.2. Perform a multi-model attack using PassGAN, PassFlow, FLA, and PassGPT, evaluating only on RockYou, on maximum password length 8 and 10: #### 
+#### Example 6 - Modify RQ6.2. Perform a multi-model attack using PassGAN, PassFlow, FLA, and PassGPT, evaluating only on RockYou, on maximum password length 8 and 10
+
 ```
 python3 ./main.py --test_config config/test/rq6.2.yaml --models passgan passflow fla passgpt --test_datasets rockyou --max_length 8 10
 ```
@@ -266,18 +309,18 @@ python3 ./main.py --test_config config/test/rq6.2.yaml --models passgan passflow
 
 YAML configuration files are central to defining and managing evaluation scenarios within MAYA. These files allow you to create reproducible experimental setups by specifying:
 
-- Preprocessing functions: Which functions to execute, in what order, and with what inputs. 
+- Preprocessing functions: Which functions to execute, in what order, and with what inputs.
 - Parameters: All the necessary parameters for the experiment and their types.
 
 These files are passed to the program using the --test_config option and are essential for reproducing the evaluation setups reported in our paper.
 
 MAYA distinguishes between five types of parameters, categorized by when and how they impact the pipeline:
 
-1) **general_params**: These are general-purpose parameters that are independent of both training and test datasets: models, display_logs, autoload, overwrite, path_to_checkpoint, n_samples, test_config, guesses_file, sub_samples_from_file, and data_to_embed.
-2) **pre_split_params**: Parameters applied before the dataset is split, thus affecting both the training and test sets: max_length, char_bag, and train_datasets.
-3) **split_params**: These control the logic of dataset splitting and influence both the training and test sets, such as train_split_percentage.
-4) **post_split_params**: Applied after the data has been split, still may impact both sets. An example is train_chunk_percentage, which in this case only impacts the training.
-5) **test_params**: These parameters affect only the test dataset and are ignored during training. Examples include test_datasets and test_frequency.
+1. **general_params**: These are general-purpose parameters that are independent of both training and test datasets: models, display_logs, autoload, overwrite, path_to_checkpoint, n_samples, test_config, guesses_file, sub_samples_from_file, and data_to_embed.
+2. **pre_split_params**: Parameters applied before the dataset is split, thus affecting both the training and test sets: max_length, char_bag, and train_datasets.
+3. **split_params**: These control the logic of dataset splitting and influence both the training and test sets, such as train_split_percentage.
+4. **post_split_params**: Applied after the data has been split, still may impact both sets. An example is train_chunk_percentage, which in this case only impacts the training.
+5. **test_params**: These parameters affect only the test dataset and are ignored during training. Examples include test_datasets and test_frequency.
 
 Scenario-specific configuration files are stored in the config/test/ directory. You can specify which file to use by passing its path via the --test_config parameter:
 
@@ -375,7 +418,7 @@ rq1:
             # Arguments for the function
             train_chunk_percentage:
               - 100
-              
+
 ```
 
 #### Example: Evaluation-Only Scenario (RQ2, RQ5.2-RQ7.3)
@@ -399,7 +442,7 @@ rq5.2:
     # Below, list all combinations for which the statistic will be computed.
     # Note: In evaluation-only scenarios, there is no need to define preprocessing functions
     # or separate parameter categories like `general_params`, `pre_split_params`, etc.
-    
+
     overwrite: 0
     display_logs: 0
 
@@ -438,6 +481,7 @@ rq5.2:
 ```
 
 ## Customization
+
 MAYA is designed to be customizable, providing an interface that allows you to easily extend its capabilities. You can integrate your own:
 
 - Models: Add new generative password-guessing models.
@@ -448,10 +492,10 @@ MAYA is designed to be customizable, providing an interface that allows you to e
 
 To integrate your own dataset into MAYA, simply follow these steps:
 
-1) **Insert the `.pickle` File**  
-   Save your dataset as a .pickle file, ensuring it contains only passwords, with each password separated by a newline character (\n). Place this file into the appropriate subdirectory within the datasets/ folder, organized by its language and service type.  Example Path: datasets/en/social-net/DatasetX.pickle
+1. **Insert the `.pickle` File**  
+   Save your dataset as a .pickle file, ensuring it contains only passwords, with each password separated by a newline character (\n). Place this file into the appropriate subdirectory within the datasets/ folder, organized by its language and service type. Example Path: datasets/en/social-net/DatasetX.pickle
 
-3) **Register the Dataset**  
+2. **Register the Dataset**  
    Add an entry inside the dict_datasets dictionary in `script/utils/download_raw_data.py`.  
    The only required parameters are:
    - `filename`: The name of the file (without the `.pickle` extension)
@@ -459,6 +503,7 @@ To integrate your own dataset into MAYA, simply follow these steps:
    - `service`: The service-type subdirectory (e.g., `"social-net"`)
 
    **Example:** You want to add a dataset named `DatasetX`, which is in English and represents a social network:
+
    ```
    datasetx : {
        "filename": "DatasetX",
@@ -467,12 +512,14 @@ To integrate your own dataset into MAYA, simply follow these steps:
        "language": "en",
        "service": "social-net",
    },
+   ```
 
 ### How To Add an Evaluation Scenario
 
 To define a new evaluation scenario, simply create a .yaml configuration file within the config/test/ directory. You can use any of the existing files in that folder as a helpful reference.
 
 Each configuration file must adhere to the following structure:
+
 1. The name of your test should be defined as the top-level key.
 2. Parameters must be grouped according to their type (e.g., pre_split_params, split_params, post_split_params).
 3. The path to the preprocessing function needs to be specified using the format: filename.function_name. Where filename is a file inside the directory script/dataset/preprocessing/.
@@ -481,7 +528,7 @@ Each configuration file must adhere to the following structure:
 
 If you need to add new preprocessing functions or modify existing ones, you have two options:
 
-- Modify the existing `standard_preprocessing.py` file located at `script/dataset/preprocessing/standard_preprocessing.py` (**not recommended**), or  
+- Modify the existing `standard_preprocessing.py` file located at `script/dataset/preprocessing/standard_preprocessing.py` (**not recommended**), or
 - Create a new file inside `script/dataset/preprocessing/` containing your custom preprocessing functions.
 
 Example: If you create a new file named personalized_preprocessing.py containing your functions, you would reference them in your YAML config file like this:
@@ -491,28 +538,29 @@ Example: If you create a new file named personalized_preprocessing.py containing
         personalized_preprocessing.your_custom_function:
             parameter1:
               - value1
-              
+
             ...
     ...
 ```
 
 ### How To Add a Model
+
 If you desire to integrate a custom model into MAYA, follow these steps:
 
 1. **Subclass the Base Model**
    Your custom model must inherit from the Model base class defined in script/test/model.py.
    You are required to implement the following abstract methods:
-   - prepare_data 
-   - load 
-   - train 
-   - eval_init 
-   - sample 
-   - guessing_strategy 
+   - prepare_data
+   - load
+   - train
+   - eval_init
+   - sample
+   - guessing_strategy
    - post_sampling
-   
+
    Each of these functions is documented in the base class with usage instructions.
    You can also refer to existing models such as PassGAN for concrete implementations.
-   
+
    Note: The only partially integrated model is PassGPT, which uses a custom evaluate function and differs slightly from the standard interface.
 
 2. **Register Your Model**  
@@ -536,12 +584,13 @@ If you desire to integrate a custom model into MAYA, follow these steps:
 
 3. **Create the Config File**
    The file specified in path_to_config must exist and should define all training and evaluation parameters required by your model.
-   
+
    Typical parameters include (but are not limited to):
    - batch_size
    - learning_rate
    - max_epochs
    - layer_dim
    - Any other architecture-specific hyperparameters
-   
+
    These parameters will be automatically loaded into self.params within your model, making them accessible during both training and evaluation phases.
+

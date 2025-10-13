@@ -6,7 +6,8 @@
 venv
 .venv/
 .idea/*
-
+mise.toml
+__pycache__/
 datasets/*/*/*.pickle
 data/dataset/*.pickle
 data/splitted/*.pickle

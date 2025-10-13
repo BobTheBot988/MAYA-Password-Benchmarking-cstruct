@@ -4,8 +4,6 @@ import numpy as np
 import torch.nn.functional as F
 import gzip
 
-class Guesser():
-    def __init__(self, model, params, data, lower_probability_threshold, output_file, device):
 
 class Guesser:
     def __init__(
@@ -16,10 +14,10 @@ class Guesser:
         self.max_len = self.data.max_length
         self.params = params
         self.lower_probability_threshold = lower_probability_threshold
-        self.chunk_size_guesser = self.params['eval']['chunk_size_guesser']
+        self.chunk_size_guesser = self.params["eval"]["chunk_size_guesser"]
         self.n_generated_passwords = 0
         self.generated_passwords = []
-        self.PASSWORD_END = '\n'
+        self.PASSWORD_END = "\n"
         self.chunk_size_guesser = self.params["eval"]["chunk_size_guesser"]
         self.n_generated_passwords = 0
         self.generated_passwords = []
@@ -53,7 +51,9 @@ class Guesser:
             x_data.append(current_password)
 
         x_data = torch.tensor(np.array(x_data), dtype=torch.long).to(self.device)
-        x_data = F.one_hot(x_data, self.data.charmap_size).to(self.device).to(torch.float32)
+        x_data = (
+            F.one_hot(x_data, self.data.charmap_size).to(self.device).to(torch.float32)
+        )
         x_data = (
             F.one_hot(x_data, self.data.charmap_size).to(self.device).to(torch.float32)
         )
@@ -64,11 +64,10 @@ class Guesser:
             astring_joined_len = sum(map(len, astring))
         else:
             astring_joined_len = 0
+
         if not self.pwd_is_valid(astring):
             preds[self.data.tokenizer.char_indices[self.PASSWORD_END]] = 0
         elif len(astring) == self.max_len or (
-                isinstance(astring, tuple) and
-                astring_joined_len == self.max_len):
             isinstance(astring, tuple) and astring_joined_len == self.max_len
         ):
             multiply = np.zeros(len(preds))
@@ -82,15 +81,6 @@ class Guesser:
 
     def pwd_is_valid(self, pwd):
         if isinstance(pwd, tuple):
-            pwd = ''.join(pwd)
-        pwd = pwd.strip(self.PASSWORD_END)
-        answer = (all(map(lambda c: c in self.data.char_bag, pwd)) and
-                  len(pwd) <= self.max_len and
-                  len(pwd) >= 4)
-        return answer
-
-    def relevel_prediction_many(self, pred_list, str_list):
-        if (self.pwd_is_valid(str_list[0]) and len(str_list[0]) != self.max_len):
             pwd = "".join(pwd)
         pwd = pwd.strip(self.PASSWORD_END)
         answer = (
@@ -100,13 +90,24 @@ class Guesser:
         )
         return answer
 
+        """  def relevel_prediction_many(self, pred_list, str_list):
+        if (self.pwd_is_valid(str_list[0]) and len(str_list[0]) != self.max_len):
+            pwd = "".join(pwd)
+        pwd = pwd.strip(self.PASSWORD_END)
+        answer = (
+            all(map(lambda c: c in self.data.char_bag, pwd))
+            and len(pwd) <= self.max_len
+            and len(pwd) >= 4
+        )
+        return answer
+        """
+
     def relevel_prediction_many(self, pred_list, str_list):
         if self.pwd_is_valid(str_list[0]) and len(str_list[0]) != self.max_len:
             return
         for i, pred_item in enumerate(pred_list):
             self.relevel_prediction(pred_item[0], str_list[i])
 
-    def conditional_probs_many(self, astring_list):
     def conditional_probs_many(self, astring_list: list[str]):
         x_data = self.data.tokenizer.encode_many(astring_list)
         x_data = torch.tensor(np.array(x_data), dtype=torch.float32).to(self.device)
@@ -135,6 +136,7 @@ class Guesser:
         above_indices = indexes[above_cutoff]
         probs_above = total_preds[above_cutoff]
         answer = []
+
         for i, chain_prob in enumerate(probs_above):
             char = self.data.tokenizer.char_list[above_indices[i]]
             if char == self.PASSWORD_END:
@@ -148,6 +150,30 @@ class Guesser:
     def batch_prob(self, prefixes):
         return self.conditional_probs_many(prefixes)
 
+    def password_probability(self, target: str, return_log: bool = False) -> float:
+        """Probability that the model emits `target` followed by PASSWORD_END."""
+        if not self.pwd_is_valid(target):
+            return 0.0
+
+        # prefixes to condition on: "", "c", "ci", "cia", "ciao"
+        prefixes = [""] + [target[:i] for i in range(1, len(target) + 1)]
+        # next tokens we want the model to choose at each step: "c","i","a","o","\n"
+        next_chars = list(target) + [self.PASSWORD_END]
+
+        preds = self.batch_prob(prefixes)  # shape: (len(prefixes), 1, vocab)
+        preds = preds[:, 0, :]  # shape: (len(prefixes), vocab)
+
+        # gather the probabilities for our desired next tokens
+        idxs = [self.data.tokenizer.char_indices[ch] for ch in next_chars]
+        step_probs = np.array(
+            [preds[i, idxs[i]] for i in range(len(idxs))], dtype=np.float64
+        )
+        # numerical stability
+
+        step_probs = np.clip(step_probs, np.finfo(np.float64).tiny, 1.0)
+        logp = float(np.log2(step_probs).sum())  # log2 P(target)
+        return -logp if return_log else float(np.exp2(logp))
+
     def extract_pwd_from_node(self, node_list):
         return map(lambda x: x[0], node_list)
 
@@ -160,7 +186,6 @@ class Guesser:
         file_buffer = []
         for i, cur_node in enumerate(node_list):
             astring, prob = cur_node
-            for next_node in self.next_nodes(astring, prob, predictions[i][0], file_buffer):
             for next_node in self.next_nodes(
                 astring, prob, predictions[i][0], file_buffer
             ):
@@ -169,7 +194,6 @@ class Guesser:
                     self.super_node_recur(node_batch, file)
                     node_batch = []
 
-            if len(file_buffer) >= 1000000:
             if len(file_buffer) >= 1_000_000:
                 file.writelines(file_buffer)
                 file_buffer.clear()
@@ -182,18 +206,12 @@ class Guesser:
             self.super_node_recur(node_batch, file)
             node_batch = []
 
-    def _recur(self, file, astring='', prob=1):
     def _recur(self, file, astring="", prob=1):
         self.super_node_recur([(astring, prob)], file)
 
     def starting_node(self, default_value):
         return default_value
 
-    def guess(self, astring='', prob=1):
-        with gzip.open(self.output_file, 'at') as file:
-            self._recur(file, self.starting_node(astring), prob)
-
-    def complete_guessing(self, start='', start_prob=1):
     def guess(self, astring="", prob=1):
         with gzip.open(self.output_file, "at") as file:
             self._recur(file, self.starting_node(astring), prob)

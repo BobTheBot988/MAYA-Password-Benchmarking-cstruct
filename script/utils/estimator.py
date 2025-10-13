@@ -4,7 +4,7 @@ from io import BufferedRandom
 
 def generator_tmp_file(
     tmpfile: BufferedRandom, i: int = 0, encoding: str = "ascii"
-) -> Generator[float, None, None]:
+) -> Generator[float]:
     while True:
         line: bytes = tmpfile.readline()
         if len(line) == 0 or line is EOFError:

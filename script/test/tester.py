@@ -1,4 +1,3 @@
-from importlib.machinery import ModuleSpec
 import sys
 import csv
 import os
@@ -6,7 +5,6 @@ import importlib.util
 import inspect
 import random
 import itertools
-from types import ModuleType
 
 from script.utils.download_raw_data import main as download_raw_data
 
@@ -28,8 +26,6 @@ class Tester:
         test_config = self._get_test_config_path()
 
         self.test_settings = read_config(test_config)
-        self.evaluation_script = self.test_settings[next(iter(self.test_settings))].pop("evaluation_script", None)
-        self.figure_script = self.test_settings[next(iter(self.test_settings))].pop("figure_script", None)
         self.evaluation_script = self.test_settings[next(iter(self.test_settings))].pop(
             "evaluation_script", None
         )
@@ -61,16 +57,8 @@ class Tester:
             file_path = os.path.join(path, file)
 
             spec = importlib.util.spec_from_file_location(module_name, file_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-
-            func_dict[module_name] = {
-                name: func for name, func in inspect.getmembers(module, inspect.isfunction)
-            spec: ModuleSpec | None = importlib.util.spec_from_file_location(
-                module_name, file_path
-            )
             assert spec is not None
-            module: ModuleType = importlib.util.module_from_spec(spec)
+            module = importlib.util.module_from_spec(spec)
             assert spec.loader is not None
             spec.loader.exec_module(module)
 
@@ -96,9 +84,6 @@ class Tester:
                     keys = list(steps[step].keys())
 
                     if func_name in func_dict.get(file_name, {}):
-                        function_map[test_name][func_name] = [func_dict[file_name][func_name], keys]
-                    else:
-                        raise ModuleNotFoundError(f"Function {func_name} not found in {file_name}.py")
                         function_map[test_name][func_name] = [
                             func_dict[file_name][func_name],
                             keys,
@@ -111,40 +96,27 @@ class Tester:
         return function_map
 
     def _load_preprocessing_functions(self):
-        all_functions = self._extract_preprocessing_functions(PREPROCESSING_FUNCTIONS_PATH)
         all_functions = self._extract_preprocessing_functions(
             PREPROCESSING_FUNCTIONS_PATH
         )
         return self._get_preprocessing_functions(all_functions)
 
-    def _prepare_script_input(self) -> dict:
-        arg_tmp: dict = get_keys_and_values(self.args_settings)  # noqa: F405
-        final_settings: dict = get_keys_and_values(self.test_settings)  # noqa: F405
+    def _prepare_script_input(self):
+        arg_tmp = get_keys_and_values(self.args_settings)
+        final_settings = get_keys_and_values(self.test_settings)
 
         for setting in final_settings:
             if setting in arg_tmp:
                 final_settings[setting] = arg_tmp[setting]
-        print(f"""self.args_settings is : {self.args_settings}
-                  Arg_tmp is : {arg_tmp}
-                  The final settings are:{final_settings}""")
         return final_settings
 
-    def _import_script(self, path: str) -> ModuleType:
+    def _import_script(self, path):
         module_path = os.path.abspath(path)
         module_name = os.path.splitext(os.path.basename(module_path))[0]
 
         spec = importlib.util.spec_from_file_location(module_name, module_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        if not hasattr(module, "main"):
-            raise AttributeError(f"The module {module_path} does not contain a 'main' function.")
-        spec: ModuleSpec | None = importlib.util.spec_from_file_location(
-            module_name, module_path
-        )
         assert spec is not None
-        module: ModuleType = importlib.util.module_from_spec(spec)
-
+        module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
         spec.loader.exec_module(module)
 
@@ -173,7 +145,6 @@ class Tester:
         module = self._import_script(self.figure_script)
         settings = self.settings[next(iter(self.settings))]
 
-        if not isinstance(settings,dict):  # If it's an evaluation script, settings are already formatted
         if not isinstance(
             settings, dict
         ):  # If it's an evaluation script, settings are already formatted
@@ -197,8 +168,6 @@ class Tester:
         combinations = []
         for combo in itertools.product(*values):
             combo_dict = dict(zip(keys, combo))
-            combo_dict['n_samples'] = n_samples
-            if not ('test_datasets' in combo_dict and combo_dict['train_datasets'] == combo_dict['test_datasets']):
             combo_dict["n_samples"] = n_samples
             if not (
                 "test_datasets" in combo_dict
@@ -210,8 +179,6 @@ class Tester:
 
     def download_dataset(self, file_path, name):
         if not os.path.isfile(file_path):
-            print(f"[INFO] Dataset not found at '{file_path}'. Attempting automatic download...")
-            download_raw_data(chosen_datasets=[name], datasets_folder=self.file_filterer.datasets_path)
             print(
                 f"[INFO] Dataset not found at '{file_path}'. Attempting automatic download..."
             )
@@ -225,7 +192,6 @@ class Tester:
         path_train_datasets = self.file_filterer.select_from_names(train_dataset)
         self.download_dataset(path_train_datasets, train_dataset)
 
-        if 'test_datasets' in test_settings:  # if cross dataset
         if "test_datasets" in test_settings:  # if cross dataset
             test_dataset = test_settings["test_datasets"]
             path_test_datasets = self.file_filterer.select_from_names(test_dataset)
@@ -251,22 +217,6 @@ class Tester:
             for combination in combinations:
                 if data_to_embed is not None:
                     combination["data_to_embed"] = data_to_embed
-                    assert combination["models"] == "passflow", "The embedding must be done with passflow's encoder."
-
-                assert not (("autoload" in combination) and ("path_to_checkpoint" in combination)), \
-                    "You can not pass both autoload and path_to_checkpoint!"
-
-                skip_key = tuple((k, make_hashable(v)) for k, v in combination.items() if k != "train_chunk_percentage" and k != "models")
-                if skip_key in skipped_thresholds:
-                    if combination.get("train_chunk_percentage", 0) >= skipped_thresholds[skip_key]:
-                        print(f"[SKIP] Skipping combination {combination} because train_chunk_percentage is too high.")
-                        continue
-
-                train_hash = construct_hash(combination, self.dict_param_to_type, "train")
-                test_hash = construct_hash(combination, self.dict_param_to_type, "test")
-
-                try:
-                    self.run_specific_test(combination, test_name, train_hash, test_hash)
                     assert combination["models"] == "passflow", (
                         "The embedding must be done with passflow's encoder."
                     )
@@ -305,7 +255,6 @@ class Tester:
                     print(f"[INFO] {e} Skipping combination: {combination}")
                     if "train_chunk_percentage is larger than dataset size." in str(e):
                         current = combination["train_chunk_percentage"]
-                        if skip_key not in skipped_thresholds or current < skipped_thresholds[skip_key]:
                         if (
                             skip_key not in skipped_thresholds
                             or current < skipped_thresholds[skip_key]
@@ -315,13 +264,6 @@ class Tester:
     def custom_key_order(self, d):
         keys = list(d.keys())
 
-        keys = [k for k in keys if k not in ('read_train_passwords', 'read_test_passwords')]
-
-        ordered_keys = []
-        if 'read_train_passwords' in d:
-            ordered_keys.append('read_train_passwords')
-        if 'read_test_passwords' in d:
-            ordered_keys.append('read_test_passwords')
         keys = [
             k for k in keys if k not in ("read_train_passwords", "read_test_passwords")
         ]
@@ -338,7 +280,6 @@ class Tester:
     def run_specific_test(self, test_settings, test_name, train_hash, test_hash):
         random.seed(42)  # setting seed for reproducibility
 
-        output_path = self.construct_output_path(test_settings, test_name, test_settings["models"])
         output_path = self.construct_output_path(
             test_settings, test_name, test_settings["models"]
         )
@@ -346,12 +287,10 @@ class Tester:
         skip_gen = False
         overwrite = test_settings.get("overwrite", False)
         if not overwrite:
-            missing_n_samples, found_rows = self.get_row_from_previous_runs(test_settings, test_hash, output_path)
-
-            if found_rows:
             missing_n_samples, found_rows = self.get_row_from_previous_runs(
                 test_settings, test_hash, output_path
             )
+
             if found_rows:
                 assert self.written_rows is not None
                 for path in found_rows:
@@ -363,7 +302,6 @@ class Tester:
             if not missing_n_samples:
                 skip_gen = True
             else:
-                test_settings['n_samples'] = missing_n_samples
                 test_settings["n_samples"] = missing_n_samples
                 new_max_n_samples = max(missing_n_samples)
                 parts = output_path.split(os.sep)
@@ -371,8 +309,6 @@ class Tester:
                 output_path = os.sep.join(parts)
 
         if not skip_gen:
-            train_data_path = os.path.join(self.file_filterer.train_and_test_path, "train-" + str(train_hash) + ".pickle")
-            test_data_path = os.path.join(self.file_filterer.train_and_test_path, "test-" + str(test_hash) + ".pickle")
             train_data_path = os.path.join(
                 self.file_filterer.train_and_test_path,
                 "train-" + str(train_hash) + ".pickle",
@@ -385,7 +321,6 @@ class Tester:
             skip = os.path.exists(train_data_path) and os.path.exists(test_data_path)
 
             if not skip:
-                path_train_datasets, path_test_datasets = self.get_train_test_datasets_path(test_settings)
                 path_train_datasets, path_test_datasets = (
                     self.get_train_test_datasets_path(test_settings)
                 )
@@ -400,8 +335,6 @@ class Tester:
 
                     kwargs_dict = {
                         key: (
-                            path_train_datasets if key == "train_datasets"
-                            else path_test_datasets if key == "test_datasets"
                             path_train_datasets
                             if key == "train_datasets"
                             else path_test_datasets
@@ -411,7 +344,6 @@ class Tester:
                         for key in args
                     }
 
-                    train_passwords, test_passwords = function(train_passwords, test_passwords, **kwargs_dict)
                     train_passwords, test_passwords = function(
                         train_passwords, test_passwords, **kwargs_dict
                     )
@@ -425,7 +357,6 @@ class Tester:
 
             print(f"Running test {test_name}")
             if test_settings["models"] != "NULL":
-                self.run_models(test_settings, output_path, train_hash, train_data_path, test_hash, test_data_path)
                 self.run_models(
                     test_settings,
                     output_path,
@@ -440,33 +371,6 @@ class Tester:
         model_class = getattr(module, class_name)
         return model_class
 
-    def run_models(self, test_settings, output_path, train_hash, train_data_path, test_hash, test_data_path):
-        models_settings = read_config(PATH_TO_MODEL_CONFIG)
-
-        model_name = test_settings["models"]
-        path_to_class, class_name, path_to_config = read_model_args(models_settings, str(model_name))
-
-        model_class = self.import_model(path_to_class, class_name)
-
-        settings = {'model_name': str(model_name),
-                    'train_path': str(train_data_path),
-                    'train_hash': str(train_hash),
-                    'test_path': str(test_data_path),
-                    'test_hash': str(test_hash),
-                    'config_file': str(path_to_config),
-                    'max_length': str(test_settings["max_length"]),
-                    'n_samples': test_settings["n_samples"],
-                    'output_path': str(output_path),
-                    'path_to_checkpoint': test_settings.get("path_to_checkpoint", False),
-                    'autoload': test_settings.get("autoload", False),
-                    'display_logs': test_settings.get("display_logs", False),
-                    'data_to_embed': test_settings.get("data_to_embed", False),
-                    'guesses_file': test_settings.get("guesses_file", False),
-                    'overwrite': test_settings.get("overwrite", False),
-                    'sub_samples_from_file': test_settings.get("sub_samples_from_file", False),
-                    'save_guesses': test_settings.get("save_guesses", False),
-                    'save_matches': test_settings.get("save_matches", False),
-                    }
     def run_models(
         self,
         test_settings,
@@ -493,8 +397,8 @@ class Tester:
             "test_hash": str(test_hash),
             "config_file": str(path_to_config),
             "max_length": str(test_settings["max_length"]),
-            "estimate_pwd": test_settings.get("estimate_pwd", False),
             "n_samples": test_settings["n_samples"],
+            "estimate_pwd": test_settings.get("estimate_pwd"),
             "output_path": str(output_path),
             "path_to_checkpoint": test_settings.get("path_to_checkpoint", False),
             "autoload": test_settings.get("autoload", False),
@@ -532,7 +436,6 @@ class Tester:
 
         for key in sorted(test_settings.keys()):
             value = test_settings[key]
-            if key == 'train_datasets' or self.dict_param_to_type[key] == 'general_params':
             if (
                 key == "train_datasets"
                 or self.dict_param_to_type[key] == "general_params"
@@ -542,11 +445,6 @@ class Tester:
             if key == "char_bag":
                 value = char_bag_mapping.get(test_settings[key], test_settings[key])
 
-            result_list.append(''.join(str(value)))
-
-        test_args = '-'.join(result_list)
-
-        output_path = os.path.join("results", test_name, model_name, train_dataset, test_args, n_samples)
             result_list.append("".join(str(value)))
 
         test_args = "-".join(result_list)
@@ -559,10 +457,6 @@ class Tester:
     def check_from_csv(self, csv_path, query):
         last_match = None
         try:
-            with open(csv_path, newline='') as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row in reader:
-                    if all(row.get(k) == v or row.get(k) == 'NONE' for k, v in query.items()):
             with open(csv_path, newline="") as csvfile:
                 reader = csv.DictReader(csvfile)
                 for row in reader:
@@ -585,13 +479,6 @@ class Tester:
         found_rows = {csv_path: []}
 
         for n_samples in test_settings["n_samples"]:
-            missing_queries.append({
-                'model': test_settings["models"],
-                'train-dataset': test_settings["train_datasets"],
-                'test-settings': infos[4],
-                'test-hash': test_hash,
-                'n_samples': str(n_samples),
-            })
             missing_queries.append(
                 {
                     "model": test_settings["models"],
@@ -610,10 +497,6 @@ class Tester:
 
         missing_n_samples = []
         for query in missing_queries:
-            missing_n_samples.append(int(query['n_samples']))
-
-        return missing_n_samples, found_rows
-
             missing_n_samples.append(int(query["n_samples"]))
 
         return missing_n_samples, found_rows
@@ -625,11 +508,3 @@ def make_hashable(v):
     elif isinstance(v, dict):
         return tuple(sorted((k, make_hashable(vv)) for k, vv in v.items()))
     return v
-<<<<<<< ours
-<<<<<<< HEAD
-    return v
-
-=======
->>>>>>> 80f3b4f (Correted the implementation)
-=======
->>>>>>> theirs

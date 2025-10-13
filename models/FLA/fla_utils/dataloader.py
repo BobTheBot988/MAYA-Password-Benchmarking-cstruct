@@ -2,14 +2,17 @@ import numpy as np
 
 from models.FLA.fla_utils.tokenizer import Tokenizer
 
-class DataLoader():
+
+class DataLoader:
     def __init__(self, train_passwords, test_passwords, max_length, params):
-        self.PASSWORD_END = '\n'
+        self.PASSWORD_END = "\n"
 
         self.max_length = max_length
 
-        self.char_bag = params['data']['char_bag']
-        self.tokenizer = Tokenizer(self.char_bag, self.max_length, self.PASSWORD_END, padding_character=False)
+        self.char_bag = params["data"]["char_bag"]
+        self.tokenizer = Tokenizer(
+            self.char_bag, self.max_length, self.PASSWORD_END, padding_character=False
+        )
 
         self.train_passwords = train_passwords
         self.test_passwords = set(test_passwords)
@@ -42,7 +45,7 @@ class DataLoader():
         data = self.train_passwords if is_train else self.test_passwords
 
         for i in range(0, len(data) - batch_size + 1, batch_size):
-            batch = [pwd for pwd in data[i:i + batch_size]]
+            batch = [pwd for pwd in data[i : i + batch_size]]
             x_vec, y_vec = self.prepare_data(batch)
             yield x_vec, y_vec
 
