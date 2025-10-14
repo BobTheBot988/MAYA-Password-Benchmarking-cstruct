@@ -89,7 +89,13 @@ def parse_args():
         default=1,
         help="1 = save matched passwords, 0 = don't save matched passwords",
     )
-
+    general.add_argument(
+        "--save_samples",
+        type=int,
+        choices=[0, 1],
+        default=1,
+        help="1 = save samples, 0 = don't save samples",
+    )
     # Pre-split
     pre_split.add_argument(
         "--max_length", nargs="+", type=int, help="Maximum password length(s)."
@@ -131,10 +137,7 @@ def parse_args():
 
 def main():
     print("Starting...")
-    args = parse_args()
-    args = args_to_dict(args)
 
-    args_settings = build_args_settings(args)
     args: argparse.Namespace = parse_args()
     args_settings: dict[str, dict] = build_args_settings(args_to_dict(args))
 

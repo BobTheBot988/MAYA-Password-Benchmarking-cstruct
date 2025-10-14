@@ -132,15 +132,9 @@ class FLA(Model):
 
     def eval_init(self, n_samples: int, evaluation_batch_size) -> dict[str, Model.T]:
         self.model.eval()
-        """if n_samples != self.n_samples:
-            raise ValueError(
-                f"The value of n_samples is different:\nn_samples:{n_samples},self.n_samples:{self.n_samples}"
-            )
-        """
         eval_dict = {
             "n_samples": self.n_samples,
             "output_file": os.path.join(self.path_to_guesses_dir, "total_guesses.gz"),
-            "sample_file": os.path.join(self.path_to_guesses_dir, "samples"),
         }
 
         return eval_dict
@@ -157,7 +151,7 @@ class FLA(Model):
             device=self.device,
         )
 
-    def get_string_probability(self) -> float:
+    def get_string_probability(self, log_2=False) -> float:
         guesser: Guesser = self.guesser_build(self.eval_init(0, 0))
         return guesser.password_probability(self.estimate_pwd, True)
 
@@ -222,7 +216,6 @@ class FLA(Model):
 
         print("[I] - Getting nlargest")
         for x in heapcy.nlargest(min_heap_n_most_prob, eval_dict["n_samples"]):
-            print(f"[I] - Offset->{x[1]}")
             offsets.append(x[1])
 
         del min_heap_n_most_prob
@@ -234,10 +227,10 @@ class FLA(Model):
             heapcy.string_float_generator(temp_file_name, offsets)
         )
 
-        with gzip.open(self.path_to_samples_file, "wt") as file:
-            for t in gen_str_float:
-                print(t)
-                file.write(f"{t[0]} {t[1]}\n")
+        if self.save_samples:
+            with gzip.open(self.path_to_samples_file, "wt") as file:
+                for t in gen_str_float:
+                    file.write(f"{t[0]} {t[1]}\n")
 
         if eval_dict.get("estimate_pwd") is not None:
             print("[I] - Returning String Float Generator")

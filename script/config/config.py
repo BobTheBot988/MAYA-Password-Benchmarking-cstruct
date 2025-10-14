@@ -59,6 +59,7 @@ def build_args_settings(dict) -> dict[str, dict[str, T]]:
             "data_to_embed": dict.get("data_to_embed"),
             "save_guesses": dict.get("save_guesses"),
             "save_matches": dict.get("save_matches"),
+            "save_samples": dict.get("save_samples"),
         },
         "pre_split_params": {
             "max_length": dict.get("max_length"),
@@ -185,18 +186,7 @@ def update_settings(args_settings, test_settings):
             update_values(
                 args_settings, final_settings[test_name][param_type], param_type
             )
-        for param_type in [
-            "general_params",
-            "pre_split_params",
-            "split_params",
-            "post_split_params",
-            "test_params",
-        ]:
-            final_settings[test_name][param_type] = {}
 
-            update_values(
-                args_settings, final_settings[test_name][param_type], param_type
-            )
             update_values(test_dict, final_settings[test_name][param_type], param_type)
 
     return final_settings

@@ -66,6 +66,7 @@ class Model:
         self.display_logs = int(self.settings["display_logs"])
         self.save_guesses = int(self.settings["save_guesses"])
         self.save_matches = int(self.settings["save_matches"])
+        self.save_samples = int(self.settings["save_samples"])
 
         # --- Dataset related settings ---
         self.train_hash = self.settings["train_hash"]
@@ -177,6 +178,8 @@ class Model:
             _create_and_clean_dir(self.path_to_guesses_dir)
         if self.save_matches:
             _create_and_clean_dir(self.path_to_matches_dir)
+        if self.save_samples:
+            _create_and_clean_dir(self.path_to_samples_dir)
 
     def _run_training_and_eval(self) -> None:
         self._prepare_directories()
@@ -199,7 +202,7 @@ class Model:
 
         rank = self.start_estimation(self.checkpoint_name)
 
-        print(f"[I]The rank of the password({self.estimate_pwd}) was:{rank}")
+        print(f"[I] - The rank of the password({self.estimate_pwd}) was:{rank}")
 
     def save_stats(self, output):
         if output:
@@ -288,12 +291,12 @@ class Model:
                 )
                 if len(line_str) != 2:
                     raise IndexError(f"The line should be composed of two parts:{line}")
-
-                lg: float = -math.log2(float(line[1])) if log_2 else float(line[1])
+                fl: float = float(line_str[1])
+                lg: float = -math.log2(fl) if log_2 else fl
 
                 yield line_str[0], lg
 
-    def get_string_probability(self) -> float:
+    def get_string_probability(self, log_2=False) -> float:
         """
         **TO BE IMPLEMENTED BY SUBCLASS.**
 
@@ -342,25 +345,23 @@ class Model:
             )
 
         generator: Generator[tuple[str, float], None, None] = (
-            self.get_generator_for_sample_file()
+            self.get_generator_for_sample_file(log_2=True)
         )
         print("[I] - Getting the target probability")
         # The probability should be in the -log_2 form
         target: float = self.get_string_probability()
 
         my_sum: float = 0
-        size_of_array: int = 0
-
+        size_of_array: int = int(self.n_samples)
         # This can be optimized in O(logn) if the file already exists, but in doing so we will use O(n) memory
         for _, prob in generator:
-            if prob == 0.0:
-                return -1.0
-            if prob > target:
+            if prob >= target:
                 break
-            my_sum += 1.0 / prob
-            size_of_array += 1
+            my_sum += math.pow(2, prob)
 
-        return my_sum / (size_of_array if size_of_array > 0 else 1)
+        result: float = my_sum / (size_of_array if size_of_array > 0 else 1)
+        assert result > 0
+        return result
 
     def start_train(self, checkpoint_name):
         if checkpoint_name:

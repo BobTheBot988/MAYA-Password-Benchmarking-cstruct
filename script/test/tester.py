@@ -382,7 +382,7 @@ class Tester:
     ):
         models_settings = read_config(PATH_TO_MODEL_CONFIG)
 
-        model_name = test_settings["models"]
+        model_name: dict[dict, str] = test_settings["models"]
         path_to_class, class_name, path_to_config = read_model_args(
             models_settings, str(model_name)
         )
@@ -409,6 +409,7 @@ class Tester:
             "sub_samples_from_file": test_settings.get("sub_samples_from_file", False),
             "save_guesses": test_settings.get("save_guesses", False),
             "save_matches": test_settings.get("save_matches", False),
+            "save_samples": test_settings.get("save_samples", False),
         }
 
         print(f"Starting {model_name}:")
