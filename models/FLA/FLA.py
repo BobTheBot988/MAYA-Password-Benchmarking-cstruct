@@ -5,7 +5,7 @@ import os
 import shutil
 import tempfile
 from io import BufferedRandom
-from typing import Dict, Generator
+from typing import Dict, Generator, Literal
 
 import heapcy
 import numpy as np
@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch.optim import Optimizer
 from tqdm import tqdm
 
-from script.test.model import Model
+from script.test.model import Model, SampleMode
 
 from .architecture import LSTM
 from .fla_utils.dataloader import DataLoader
@@ -200,6 +200,10 @@ class FLA(Model):
         if not guesser:
             guesser = self.guesser_build(eval_dict)
 
+        if self.mode is SampleMode.IID:
+            print("[I] - Generating string so that we are iid")
+            return guesser.iid_sampler(self.n_samples, log_2=False)
+
         print("[I] - Generating strings")
         n_gen: int = guesser.complete_guessing()
 
@@ -222,19 +226,6 @@ class FLA(Model):
         gc.collect()
 
         eval_dict["tempfilename"] = temp_file_name
-
-        gen_str_float: Generator[tuple[str, float], None, None] = (
-            heapcy.string_float_generator(temp_file_name, offsets)
-        )
-
-        if self.save_samples:
-            with gzip.open(self.path_to_samples_file, "wt") as file:
-                for t in gen_str_float:
-                    file.write(f"{t[0]} {t[1]}\n")
-
-        if eval_dict.get("estimate_pwd") is not None:
-            print("[I] - Returning String Float Generator")
-            return gen_str_float
 
         print("[I] - Returning String Generator")
         return heapcy.string_generator(temp_file_name, offsets)

@@ -16,30 +16,14 @@ from script.plotters.various_plot import tsne_plot
 
 def get_evaluation_params(n_samples):
     n_samples = int(n_samples)
-    if n_samples <= 10 ** 5:
-        return {
-            "alpha": 1,
-            "sigma": 0.12,
-            "gamma": 2
-        }
-    elif n_samples <= 10 ** 6:
-        return {
-            "alpha": 5,
-            "sigma": 0.12,
-            "gamma": 10
-        }
-    elif n_samples <= 10 ** 7:
-        return {
-            "alpha": 50,
-            "sigma": 0.12,
-            "gamma": 10
-        }
+    if n_samples <= 10**5:
+        return {"alpha": 1, "sigma": 0.12, "gamma": 2}
+    elif n_samples <= 10**6:
+        return {"alpha": 5, "sigma": 0.12, "gamma": 10}
+    elif n_samples <= 10**7:
+        return {"alpha": 50, "sigma": 0.12, "gamma": 10}
     else:
-        return {
-            "alpha": 50,
-            "sigma": 0.15,
-            "gamma": 10
-        }
+        return {"alpha": 50, "sigma": 0.15, "gamma": 10}
 
 
 class PassFlow(Model):
@@ -56,9 +40,9 @@ class PassFlow(Model):
         try:
             self.init_model()
             state_dicts = torch.load(file_to_load, map_location=self.device)
-            self.model.load_state_dict(state_dicts['net'])
+            self.model.load_state_dict(state_dicts["net"])
             self.model.to(self.device)
-            self.optimizer.load_state_dict(state_dicts['optimizer'])
+            self.optimizer.load_state_dict(state_dicts["optimizer"])
             return 1
         except Exception as e:
             print(f"Exception: {e}")
@@ -67,25 +51,37 @@ class PassFlow(Model):
     def init_model(self):
         optimizer = torch.optim.Adam
         dim = self.data.max_length
-        lr = self.params['train']['learning_rate']
-        num_coupling = self.params['train']['num_coupling']
-        mask_pattern = self.params['train']['mask_pattern'] != 'None'
-        weight_decay = self.params['train']['weight_decay']
-        n_hidden = self.params['train']['n_hidden']
-        hidden_size = self.params['train']['hidden_size']
+        lr = self.params["train"]["learning_rate"]
+        num_coupling = self.params["train"]["num_coupling"]
+        mask_pattern = self.params["train"]["mask_pattern"] != "None"
+        weight_decay = self.params["train"]["weight_decay"]
+        n_hidden = self.params["train"]["n_hidden"]
+        hidden_size = self.params["train"]["hidden_size"]
         architecture = "resnet"
 
-        mask = ['left', 'right']
+        mask = ["left", "right"]
         if not mask_pattern:
             mask_pattern = [MaskType.CHECKERBOARD] * num_coupling
 
-        flows = [AffineTransform(dim, self.device, mask[i % 2], mask_pattern[i], architecture,
-                                 n_hidden=n_hidden, hidden_size=hidden_size) for i in range(num_coupling)]
+        flows = [
+            AffineTransform(
+                dim,
+                self.device,
+                mask[i % 2],
+                mask_pattern[i],
+                architecture,
+                n_hidden=n_hidden,
+                hidden_size=hidden_size,
+            )
+            for i in range(num_coupling)
+        ]
 
         self.model = RealNVP(dim, self.device, flows).to(self.device)
         trainable_parameters = [p for p in self.model.parameters() if p.requires_grad]
 
-        self.optimizer = optimizer(trainable_parameters, lr=lr, weight_decay=weight_decay)
+        self.optimizer = optimizer(
+            trainable_parameters, lr=lr, weight_decay=weight_decay
+        )
 
     def preprocess(self, x, reverse=False):
         charmap_size = float(self.data.charmap_size)
@@ -103,21 +99,31 @@ class PassFlow(Model):
             x *= 0.9
             x += 0.05
             logit = torch.log(x) - torch.log(1.0 - x)
-            log_det = F.softplus(logit) + F.softplus(-logit) + torch.log(torch.tensor(0.9)) \
-                      - torch.log(torch.tensor(charmap_size))
+            log_det = (
+                F.softplus(logit)
+                + F.softplus(-logit)
+                + torch.log(torch.tensor(0.9))
+                - torch.log(torch.tensor(charmap_size))
+            )
 
             return logit, torch.sum(log_det, dim=1)
 
     def plot_embedding(self, data_paths, max_length):
         def get_batches(data, batch_size=2048):
             for i in range(0, len(data) - batch_size + 1, batch_size):
-                yield np.array([np.array(pwd) for pwd in data[i:i + batch_size]], dtype='uint8')
+                yield np.array(
+                    [np.array(pwd) for pwd in data[i : i + batch_size]], dtype="uint8"
+                )
 
         datasets = {}
         for idx, dataset in enumerate(data_paths):
             dataset = read_files(dataset)
-            datasets[str(idx)] = [self.data.encode_password(str(password) + ("`" * (int(max_length) - len(str(password)))))
-                         for password in dataset][:20000]
+            datasets[str(idx)] = [
+                self.data.encode_password(
+                    str(password) + ("`" * (int(max_length) - len(str(password))))
+                )
+                for password in dataset
+            ][:20000]
 
         embeddings = []
         labels = []
@@ -137,25 +143,24 @@ class PassFlow(Model):
         print("[I] - Launching training")
 
         dim = self.data.max_length
-        batch_size = self.params['train']['batch_size']
-        n_epochs = self.params['train']['epochs']
+        batch_size = self.params["train"]["batch_size"]
+        n_epochs = self.params["train"]["epochs"]
 
         early_stop_epoch = n_epochs // 2
         early_stop_counter = 0
 
         current_epoch = 0
         n_matches = 0
-        checkpoint_frequency = self.params['eval']['checkpoint_frequency']
+        checkpoint_frequency = self.params["eval"]["checkpoint_frequency"]
 
         self.init_model()
 
         while current_epoch < n_epochs:
-
             print(f"Epoch: {current_epoch + 1} / {n_epochs}")
             self.model.train()
 
             with tqdm(total=self.data.get_train_size()) as bar:
-                bar.set_description(f'Epoch {current_epoch}')
+                bar.set_description(f"Epoch {current_epoch}")
                 batch_loss_history = []
 
                 for b in self.data.get_batches(batch_size):
@@ -178,7 +183,7 @@ class PassFlow(Model):
                     bar.update(b.size(0))
 
                 if current_epoch % checkpoint_frequency == 0:
-                    matches, _, _ = self.evaluate(n_samples=10 ** 6, validation_mode=True)
+                    matches, _, _ = self.evaluate(n_samples=10**6, validation_mode=True)
                     self.model.reset_prior()
 
                     if current_epoch >= early_stop_epoch:
@@ -195,8 +200,8 @@ class PassFlow(Model):
                     if matches >= n_matches:
                         n_matches = matches
                         obj = {
-                            'optimizer': self.optimizer.state_dict(),
-                            'net': self.model.state_dict(),
+                            "optimizer": self.optimizer.state_dict(),
+                            "net": self.model.state_dict(),
                         }
                         self.save(obj)
 
@@ -214,7 +219,14 @@ class PassFlow(Model):
                     counter = 0
                     if noise_d >= 0.20:
                         break
-                sample = np.around(samples[idx] + np.random.normal(0.0, self.params['train']['noise'] + noise_d, self.data.max_length)).astype(np.uint8)
+                sample = np.around(
+                    samples[idx]
+                    + np.random.normal(
+                        0.0,
+                        self.params["train"]["noise"] + noise_d,
+                        self.data.max_length,
+                    )
+                ).astype(np.uint8)
                 decoded_sample = sample.tobytes()
                 counter += 1
             samples[idx] = sample
@@ -231,7 +243,11 @@ class PassFlow(Model):
             x, _ = self.preprocess(x)
             z, _ = self.model.flow(x)
 
-            z += torch.distributions.Uniform(low=-temperature, high=temperature).sample(z.shape).to(self.device)
+            z += (
+                torch.distributions.Uniform(low=-temperature, high=temperature)
+                .sample(z.shape)
+                .to(self.device)
+            )
 
             x = self.model.invert_flow(z)
             x = self.preprocess(x, reverse=True)
@@ -281,78 +297,103 @@ class PassFlow(Model):
             gs = True
 
         eval_dict = {
-            'gs': gs,
-            'ds': ds,
+            "gs": gs,
+            "ds": ds,
         }
 
         if ds or gs:
             p = get_evaluation_params(n_samples)
-            alpha, sigma, gamma = p['alpha'], p['sigma'], p['gamma']
+            alpha, sigma, gamma = p["alpha"], p["sigma"], p["gamma"]
             matched_history = dict()
             count_samples = 0
 
-            eval_dict.update({
-                'alpha': alpha,
-                'sigma': sigma,
-                'gamma': gamma,
-                'matched_history': matched_history,
-                'count_samples': count_samples,
-                'old_matches': set(),
-                'dim': self.data.max_length,
-                'uniques': set(),
-            })
+            eval_dict.update(
+                {
+                    "alpha": alpha,
+                    "sigma": sigma,
+                    "gamma": gamma,
+                    "matched_history": matched_history,
+                    "count_samples": count_samples,
+                    "old_matches": set(),
+                    "dim": self.data.max_length,
+                    "uniques": set(),
+                }
+            )
 
         sys.stdout.flush()
         return eval_dict
 
+    def get_string_probability(self, log_2=False) -> float: ...
     def sample(self, evaluation_batch_size, eval_dict):
         with torch.no_grad():
+            assert self.model is not None
             raw_samples = self.model.sample(evaluation_batch_size)
-            samples = self.preprocess(raw_samples, reverse=True).to('cpu').numpy()
+            samples = self.preprocess(raw_samples, reverse=True).to("cpu").numpy()
 
-            if eval_dict['gs'] and eval_dict['uniques'] and self.params['train']['noise'] != 0:
-                samples = self.smoothen_samples(samples, eval_dict['uniques'])
+            if (
+                eval_dict["gs"]
+                and eval_dict["uniques"]
+                and self.params["train"]["noise"] != 0
+            ):
+                samples = self.smoothen_samples(samples, eval_dict["uniques"])
             else:
                 samples = np.around(samples).astype(np.uint8)
 
             encoded_samples = {x.tobytes() for x in samples}
-            eval_dict['uniques'].update(encoded_samples)
+            eval_dict["uniques"].update(encoded_samples)
             return {tuple(x) for x in samples}
 
     def guessing_strategy(self, evaluation_batch_size, eval_dict):
-        if eval_dict['gs'] or eval_dict['ds']:
+        if eval_dict["gs"] or eval_dict["ds"]:
             self.dynamic_sampling(evaluation_batch_size, eval_dict)
 
     def post_sampling(self, eval_dict):
         self.model.reset_prior()
 
     def dynamic_sampling(self, evaluation_batch_size, eval_dict):
-        new_matches = self.matches - eval_dict['old_matches']
+        new_matches = self.matches - eval_dict["old_matches"]
 
         for match in new_matches:
-            eval_dict['matched_history'][match] = 0
+            eval_dict["matched_history"][match] = 0
 
         with torch.no_grad():
-            if len(self.matches) >= eval_dict['alpha'] and len(eval_dict['matched_history']) > 0:
-                idxs = np.random.randint(0, len(eval_dict['matched_history']), evaluation_batch_size, np.int32)
+            if (
+                len(self.matches) >= eval_dict["alpha"]
+                and len(eval_dict["matched_history"]) > 0
+            ):
+                idxs = np.random.randint(
+                    0,
+                    len(eval_dict["matched_history"]),
+                    evaluation_batch_size,
+                    np.int32,
+                )
 
-                key_list = np.fromiter(eval_dict['matched_history'].keys(), dtype=object)[idxs]
-                np_key_list = np.array([np.array(key, dtype=np.uint8) for key in key_list])
+                key_list = np.fromiter(
+                    eval_dict["matched_history"].keys(), dtype=object
+                )[idxs]
+                np_key_list = np.array(
+                    [np.array(key, dtype=np.uint8) for key in key_list]
+                )
 
                 for key in key_list:
-                    if key in eval_dict['matched_history']:
-                        eval_dict['matched_history'][key] += 1
-                        if eval_dict['matched_history'][key] > eval_dict['gamma']:
-                            del eval_dict['matched_history'][key]
+                    if key in eval_dict["matched_history"]:
+                        eval_dict["matched_history"][key] += 1
+                        if eval_dict["matched_history"][key] > eval_dict["gamma"]:
+                            del eval_dict["matched_history"][key]
 
                 x = torch.FloatTensor(np_key_list).to(self.device)
                 x, _ = self.preprocess(x)
-                matched_z = self.model.flow(x)[0].to('cpu').numpy()
+                matched_z = self.model.flow(x)[0].to("cpu").numpy()
 
                 dynamic_mean = matched_z
-                dynamic_var = np.full((evaluation_batch_size, eval_dict['dim']), eval_dict['sigma'], dtype=np.float32)
+                dynamic_var = np.full(
+                    (evaluation_batch_size, eval_dict["dim"]),
+                    eval_dict["sigma"],
+                    dtype=np.float32,
+                )
                 self.model.set_prior(dynamic_mean, dynamic_var)
             else:
                 self.model.reset_prior()
 
-        eval_dict['old_matches'] = self.matches.copy()
+        eval_dict["old_matches"] = self.matches.copy()
+

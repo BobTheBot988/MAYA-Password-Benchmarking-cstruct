@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 import gzip
+from typing import Generator
 
 
 class Guesser:
@@ -103,8 +104,6 @@ class Guesser:
         """
 
     def relevel_prediction_many(self, pred_list, str_list):
-        if self.pwd_is_valid(str_list[0]) and len(str_list[0]) != self.max_len:
-            return
         for i, pred_item in enumerate(pred_list):
             self.relevel_prediction(pred_item[0], str_list[i])
 
@@ -120,6 +119,32 @@ class Guesser:
 
         self.relevel_prediction_many(answer, astring_list)
         return answer
+
+    def sample_one_iid(self, rng=np.random):
+        """Draw ONE password i.i.d. from the model; return (pwd, ell=-log2 p)."""
+        prefix = ""
+        logp2 = 0.0  # log2 probability accumulator
+
+        while True:
+            preds = self.batch_prob([prefix])[0, 0, :]  # probs over vocab
+            # relevel_prediction_many already enforced EOS logic / validity
+            idx = rng.choice(len(preds), p=preds)  # sample next char
+            p = float(preds[idx])
+            logp2 += np.log2(max(p, np.finfo(np.float64).tiny))  # numeric safety
+
+            ch = self.data.tokenizer.char_list[idx]
+            if ch == self.PASSWORD_END:
+                return prefix, -logp2  # done
+            prefix += ch  # continue
+
+    def iid_sampler(
+        self, n: int, rng=np.random, log_2: bool = True
+    ) -> Generator[tuple[str, float], None, None]:
+        """Yield n i.i.d. samples as (pwd, ell or p)."""
+
+        for _ in range(n):
+            pwd, ell = self.sample_one_iid(rng=rng)
+            yield (pwd, ell if log_2 else 2.0 ** (-ell))
 
     def next_nodes(self, astring, prob, prediction, file_buffer):
         total_preds = prediction * prob
