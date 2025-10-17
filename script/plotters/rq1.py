@@ -55,7 +55,8 @@ class RQ1Plotter(Plotter):
                 for i in sorted(self.x_data):
                     weighted_sum = 0.0
                     for dataset in datasets:
-                        value = datasets[dataset][i]
+                        value = datasets[dataset].get(i)
+                        assert value is not None
                         if isinstance(value, str) and value.endswith("%"):
                             value = float(value.replace("%", ""))
                         else:
@@ -173,4 +174,3 @@ class RQ1Plotter(Plotter):
 
 def main(rows=None, settings=None):
     RQ1Plotter(rows, settings)
-

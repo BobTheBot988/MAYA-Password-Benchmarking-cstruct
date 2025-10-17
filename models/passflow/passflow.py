@@ -323,7 +323,7 @@ class PassFlow(Model):
         sys.stdout.flush()
         return eval_dict
 
-    def get_string_probability(self, log_2=False) -> float: ...
+    def get_string_probability(self) -> float: ...
     def sample(self, evaluation_batch_size, eval_dict):
         with torch.no_grad():
             assert self.model is not None
@@ -396,4 +396,3 @@ class PassFlow(Model):
                 self.model.reset_prior()
 
         eval_dict["old_matches"] = self.matches.copy()
-

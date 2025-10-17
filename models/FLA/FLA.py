@@ -5,7 +5,7 @@ import os
 import shutil
 import tempfile
 from io import BufferedRandom
-from typing import Dict, Generator, Literal
+from typing import Dict, Generator
 
 import heapcy
 import numpy as np
@@ -151,9 +151,9 @@ class FLA(Model):
             device=self.device,
         )
 
-    def get_string_probability(self, log_2=False) -> float:
+    def get_string_probability(self) -> float:
         guesser: Guesser = self.guesser_build(self.eval_init(0, 0))
-        return guesser.password_probability(self.estimate_pwd, True)
+        return guesser.password_probability(self.estimate_pwd)
 
     def generate_file(self, guesser: Guesser) -> int:
         return guesser.complete_guessing()
@@ -202,7 +202,7 @@ class FLA(Model):
 
         if self.mode is SampleMode.IID:
             print("[I] - Generating string so that we are iid")
-            return guesser.iid_sampler(self.n_samples, log_2=False)
+            return guesser.iid_sampler(self.n_samples)
 
         print("[I] - Generating strings")
         n_gen: int = guesser.complete_guessing()

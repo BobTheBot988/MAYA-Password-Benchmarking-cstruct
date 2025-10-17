@@ -1,4 +1,3 @@
-from numpy.dtypes import Float64DType
 import torch
 import numpy as np
 from numpy.random import Generator as NPGenerator
@@ -125,21 +124,55 @@ class Guesser:
         return answer
 
     def choose(
-        self, preds: np.typing.NDArray[np.float64], rng: TCGenerator | NPGenerator
+        self,
+        preds: np.typing.NDArray[np.float64] | torch.Tensor,
+        rng: TCGenerator | NPGenerator,
     ) -> int:
-        idx: int = -1
+        # Torch path (use if you pass a torch.Generator or preds is a torch.Tensor)
+        if isinstance(rng, TCGen) or torch.is_tensor(preds):
+            t = (
+                preds
+                if torch.is_tensor(preds)
+                else torch.as_tensor(preds, dtype=torch.float64, device="cpu")
+            )
+            t = torch.nan_to_num(t, nan=0.0).clamp_min_(0)
+            s = t.sum()
+            if not torch.isfinite(s) or s <= 0:
+                return int(self.pwd_end_idx)
+            t = t / s
+            idx = torch.multinomial(
+                t,
+                num_samples=1,
+                replacement=True,
+                generator=rng if isinstance(rng, TCGenerator) else None,
+            )
+            return int(idx.item())
+
+        # NumPy path
+        p = np.asarray(preds, dtype=np.float64)
+        p = np.nan_to_num(p, nan=0.0)
+        p[p < 0.0] = 0.0
+        s = p.sum()
+        if not np.isfinite(s) or s <= 0:
+            return int(self.pwd_end_idx)
+        p /= s
+        if not isinstance(rng, NPGenerator):
+            rng = np.random.default_rng()
+        return int(rng.choice(p.size, p=p))
+
+        """idx: int = -1
         if isinstance(rng, TCGenerator):
             tensor_preds: torch.Tensor = torch.tensor(preds)
-            idx = int(torch.multinomial(tensor_preds, 1, replacement=True).item())
+            idx = int(torch.multinomial(tensor_preds, 1).item())
         elif isinstance(rng, NPGenerator):
             idx = rng.choice(len(preds), p=preds)  # sample next char
 
-        return idx
+        return idx"""
 
     def sample_one_iid(
         self, rng: TCGenerator | NPGenerator = np.random.default_rng()
     ) -> tuple[str, float]:
-        """Draw ONE password i.i.d. from the model; return (pwd, ell=-log2 p)."""
+        """Draw ONE password i.i.d. from the model; return (pwd, prob)."""
         prefix: str = ""
         prob: float = 0.0
         ch: str = ""
@@ -150,26 +183,32 @@ class Guesser:
                 0, 0, :
             ]  # probs over vocab
 
+            preds = np.asarray(preds, dtype=np.float64).ravel()
+
+            preds = np.clip(preds, 0.0, None)
+            s = preds.sum()
+            if not np.isfinite(s) or s <= 0:
+                # fallback: force EOS or uniform over valid tokens
+                preds = np.zeros_like(preds)
+                preds[self.pwd_end_idx] = 1.0
+            else:
+                preds /= s
             # relevel_prediction_many already enforced EOS logic / validity
             idx = self.choose(preds, rng)
-            p = float(preds[idx])
-            prob += max(p, float(np.finfo(np.float64).tiny))  # numeric safety
-
+            p = float(np.log2(preds[idx]))
+            prob += p
             ch = self.data.tokenizer.char_list[idx]
             if ch == self.PASSWORD_END:
-                return prefix, prob  # done
+                return prefix, np.exp2(prob)
             prefix += ch  # continue
 
     def iid_sampler(
-        self,
-        n: int,
-        rng: TCGenerator | NPGenerator = np.random.default_rng(),
-        log_2: bool = False,
+        self, n: int, rng: TCGenerator | NPGenerator = np.random.default_rng()
     ) -> Generator[tuple[str, float], None, None]:
-        """Yield n i.i.d. samples as (pwd, ell or p)."""
+        """Yield n i.i.d. samples as (pwd, p)."""
         for _ in range(n):
             pwd, prob = self.sample_one_iid(rng=rng)
-            yield (pwd, -np.log2(prob) if log_2 else prob)
+            yield (pwd, prob)
 
     def next_nodes(self, astring, prob, prediction, file_buffer):
         total_preds = prediction * prob
@@ -200,7 +239,7 @@ class Guesser:
     def batch_prob(self, prefixes: list[str]) -> np.typing.NDArray[np.float64]:
         return self.conditional_probs_many(prefixes)
 
-    def password_probability(self, target: str, return_log: bool = False) -> float:
+    def password_probability(self, target: str) -> float:
         """Probability that the model emits `target` followed by PASSWORD_END."""
         if not self.pwd_is_valid(target):
             return 0.0
@@ -221,8 +260,8 @@ class Guesser:
         # numerical stability
 
         step_probs = np.clip(step_probs, np.finfo(np.float64).tiny, 1.0)
-        logp = float(np.log2(step_probs).sum())  # log2 P(target)
-        return -logp if return_log else float(np.exp2(logp))
+        target_prob: float = float(step_probs.sum())  # P(target)
+        return target_prob
 
     def extract_pwd_from_node(self, node_list):
         return map(lambda x: x[0], node_list)

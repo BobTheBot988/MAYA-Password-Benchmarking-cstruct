@@ -355,10 +355,9 @@ class Model:
         """
         # Materialize exactly n samples if you want to enforce count:
         # arr = np.fromiter(vals, dtype=np.float64, count=self.n_samples)
-        arr = np.fromiter(vals, dtype=np.float64)
+        arr = np.fromiter(vals, dtype=np.float64, count=self.n_samples)
         if arr.size == 0:
             return 0.0
-        assert arr.size == self.n_samples
 
         if self.log_2:
             ells = arr
@@ -368,7 +367,7 @@ class Model:
             ells = -np.log2(np.clip(arr, tiny, 1.0))
             ell_target = -np.log2(np.clip(float(target_val), tiny, 1.0))
 
-        mask: np.typing.NDArray = ells < ell_target
+        mask = ells < ell_target
 
         # contrib = 2**ell for hits, 0 otherwise; average over ALL samples
         contrib = np.zeros_like(ells)
