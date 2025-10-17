@@ -144,7 +144,7 @@ class Guesser:
 
         for _ in range(n):
             pwd, ell = self.sample_one_iid(rng=rng)
-            yield (pwd, ell if log_2 else 2.0 ** (-ell))
+            yield (pwd, ell if log_2 else np.exp2(-ell))
 
     def next_nodes(self, astring, prob, prediction, file_buffer):
         total_preds = prediction * prob

@@ -18,9 +18,15 @@ description = "Install dependencies"
 alias = "i"
 run = "uv pip install -r requirements.txt"
 
+[tasks.clean]
+description = "Clean output files"
+alias = "c"
+run = "cd ./results/"
+
 [tasks.estimate]
 description = "Run the application"
-run = "python main.py --models fla --test_config config/test/rq1.yaml --estimate_pwd 'ciao' --train_datasets rockyou --max_length 12 --overwrite 1 --n_samples "
+run = "python main.py --models fla --test_config config/test/rq1.yaml --estimate_pwd 'ciao' --train_datasets rockyou --max_length 12 --overwrite 1 --save_samples 0 --n_samples "
+
 [tasks.generate]
 description = "Run the application"
 run = "python main.py --models fla --test_config config/test/rq1.yaml --train_datasets rockyou --max_length 12 --overwrite 1 --n_samples "
@@ -31,11 +37,11 @@ run = "pytest tests/"
 
 [tasks.lint]
 description = "Lint the code"
-run = "ruff src/"
+run = "ruff ./"
 
 [tasks.info]
 description = "Print project information"
 run = '''
-echo "Project: $PROJECT_NAME"
+echo "Project: MAYA-Password-Benchmarking"
 echo "Virtual Environment: $VIRTUAL_ENV"
 '''
