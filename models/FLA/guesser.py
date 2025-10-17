@@ -1,9 +1,11 @@
-import numpy
+from numpy.dtypes import Float64DType
 import torch
 import numpy as np
+from numpy.random import Generator as NPGenerator
+from typing import Generator
+from torch import Generator as TCGenerator
 import torch.nn.functional as F
 import gzip
-from typing import Generator
 
 
 class Guesser:
@@ -32,7 +34,7 @@ class Guesser:
         with torch.no_grad():
             output = self.model(x_data)
             output = F.softmax(output, dim=1)
-            output = np.array(output.to("cpu"), dtype=numpy.float64)
+            output = np.array(output.to("cpu"), dtype=np.float64)
         return output
 
     def encode_passwords(self, astring_list):
@@ -107,7 +109,9 @@ class Guesser:
         for i, pred_item in enumerate(pred_list):
             self.relevel_prediction(pred_item[0], str_list[i])
 
-    def conditional_probs_many(self, astring_list: list[str]):
+    def conditional_probs_many(
+        self, astring_list: list[str]
+    ) -> np.typing.NDArray[np.float64]:
         x_data = self.data.tokenizer.encode_many(astring_list)
         x_data = torch.tensor(np.array(x_data), dtype=torch.float32).to(self.device)
 
@@ -120,31 +124,52 @@ class Guesser:
         self.relevel_prediction_many(answer, astring_list)
         return answer
 
-    def sample_one_iid(self, rng=np.random):
-        """Draw ONE password i.i.d. from the model; return (pwd, ell=-log2 p)."""
-        prefix = ""
-        logp2 = 0.0  # log2 probability accumulator
-
-        while True:
-            preds = self.batch_prob([prefix])[0, 0, :]  # probs over vocab
-            # relevel_prediction_many already enforced EOS logic / validity
+    def choose(
+        self, preds: np.typing.NDArray[np.float64], rng: TCGenerator | NPGenerator
+    ) -> int:
+        idx: int = -1
+        if isinstance(rng, TCGenerator):
+            tensor_preds: torch.Tensor = torch.tensor(preds)
+            idx = int(torch.multinomial(tensor_preds, 1, replacement=True).item())
+        elif isinstance(rng, NPGenerator):
             idx = rng.choice(len(preds), p=preds)  # sample next char
+
+        return idx
+
+    def sample_one_iid(
+        self, rng: TCGenerator | NPGenerator = np.random.default_rng()
+    ) -> tuple[str, float]:
+        """Draw ONE password i.i.d. from the model; return (pwd, ell=-log2 p)."""
+        prefix: str = ""
+        prob: float = 0.0
+        ch: str = ""
+        idx: int = -1
+        p: float = -1
+        while True:
+            preds: np.typing.NDArray[np.float64] = self.batch_prob([prefix])[
+                0, 0, :
+            ]  # probs over vocab
+
+            # relevel_prediction_many already enforced EOS logic / validity
+            idx = self.choose(preds, rng)
             p = float(preds[idx])
-            logp2 += np.log2(max(p, np.finfo(np.float64).tiny))  # numeric safety
+            prob += max(p, float(np.finfo(np.float64).tiny))  # numeric safety
 
             ch = self.data.tokenizer.char_list[idx]
             if ch == self.PASSWORD_END:
-                return prefix, -logp2  # done
+                return prefix, prob  # done
             prefix += ch  # continue
 
     def iid_sampler(
-        self, n: int, rng=np.random, log_2: bool = True
+        self,
+        n: int,
+        rng: TCGenerator | NPGenerator = np.random.default_rng(),
+        log_2: bool = False,
     ) -> Generator[tuple[str, float], None, None]:
         """Yield n i.i.d. samples as (pwd, ell or p)."""
-
         for _ in range(n):
-            pwd, ell = self.sample_one_iid(rng=rng)
-            yield (pwd, ell if log_2 else np.exp2(-ell))
+            pwd, prob = self.sample_one_iid(rng=rng)
+            yield (pwd, -np.log2(prob) if log_2 else prob)
 
     def next_nodes(self, astring, prob, prediction, file_buffer):
         total_preds = prediction * prob
@@ -172,7 +197,7 @@ class Guesser:
                 answer.append((chain_pass, chain_prob))
         return answer
 
-    def batch_prob(self, prefixes):
+    def batch_prob(self, prefixes: list[str]) -> np.typing.NDArray[np.float64]:
         return self.conditional_probs_many(prefixes)
 
     def password_probability(self, target: str, return_log: bool = False) -> float:
