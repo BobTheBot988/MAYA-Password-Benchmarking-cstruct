@@ -56,7 +56,7 @@ class Model:
             if (not status) and (self.estimate_pwd is not None)
             else SampleMode.TOPK
         )
-        self.log_2 = False
+        self.log_2 = True
         self._prepare_sample_paths()
         if (not status) and (self.estimate_pwd is not None):
             print(
@@ -360,19 +360,14 @@ class Model:
             return 0.0
         assert arr.size == self.n_samples
 
-        if self.log_2:
-            ells = arr
-            ell_target = float(target_val)
-        else:
-            tiny = np.finfo(np.float64).tiny
-            ells = -np.log2(np.clip(arr, tiny, 1.0))
-            ell_target = -np.log2(np.clip(float(target_val), tiny, 1.0))
+        tiny = np.finfo(np.float64).tiny
+        ells = -np.log2(np.clip(arr, tiny, 1.0)) if self.log_2 else arr
+        ell_target = -np.log2(target_val) if self.log_2 else target_val
 
-        mask: np.typing.NDArray = ells < ell_target
+        mask: np.typing.NDArray = ells < ell_target if self.log_2 else ells > ell_target
 
         # contrib = 2**ell for hits, 0 otherwise; average over ALL samples
-        contrib = np.zeros_like(ells)
-        np.exp2(ells, out=contrib, where=mask)  # vectorized, no temp alloc
+        contrib = np.exp2(ells, where=mask) if self.log_2 else mask
 
         hits = int(mask.sum())
         hit_rate = hits / ells.size
@@ -414,10 +409,11 @@ class Model:
         # This can be optimized in O(logn) if the file already exists, but in doing so we will use O(n) memory
         for _ in range(self.n_samples):
             ell = next(generator)
-            if not ell:
-                break
-            if ell < target:
-                my_sum += np.exp2(ell) if self.log_2 else 1 / ell
+            ell = -np.log2(ell) if self.log_2 else ell
+            if ell < target and self.log_2:
+                my_sum += np.exp2(ell)
+            elif ell > target and not self.log_2:
+                my_sum += 1.0 / (ell if ell > 0 else 0.000000000001)
 
         result: float = my_sum / (size_of_array if size_of_array > 0 else 1)
         assert result >= 0
@@ -546,9 +542,10 @@ class Model:
             gen = self.iid_evaluation()
         else:
             gen = self.get_generator_for_sample_file()
-        rank: float = self.fast_montecarlo_estimation(
-            gen, self.get_string_probability()
-        )
+        rank: float = self.montecarlo_estimation()
+        # rank: float = self.fast_montecarlo_estimation(
+        #     gen, self.get_string_probability()
+        # )
 
         estim_end = time.time()
         time_delta = timedelta(seconds=estim_end - estim_start)

@@ -129,7 +129,7 @@ class Guesser:
         rng: TCGenerator | NPGenerator,
     ) -> int:
         # Torch path (use if you pass a torch.Generator or preds is a torch.Tensor)
-        if isinstance(rng, TCGen) or torch.is_tensor(preds):
+        if isinstance(rng, TCGenerator) or torch.is_tensor(preds):
             t = (
                 preds
                 if torch.is_tensor(preds)
@@ -260,8 +260,12 @@ class Guesser:
         # numerical stability
 
         step_probs = np.clip(step_probs, np.finfo(np.float64).tiny, 1.0)
-        target_prob: float = float(step_probs.sum())  # P(target)
-        return target_prob
+        # step_log2_probs = np.log2(step_probs)
+        # total_log2_prob: float = float(step_log2_probs.sum())
+
+        # # Convert the total log2-prob back to a standard probability
+        # target_prob: float = np.exp2(total_log2_prob)
+        return step_probs.prod()
 
     def extract_pwd_from_node(self, node_list):
         return map(lambda x: x[0], node_list)

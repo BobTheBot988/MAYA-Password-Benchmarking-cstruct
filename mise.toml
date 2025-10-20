@@ -25,7 +25,7 @@ run = "cd ./results/"
 
 [tasks.estimate]
 description = "Run the application"
-run = "python main.py --models fla --test_config config/test/rq1.yaml --estimate_pwd '123456' --train_datasets rockyou --max_length 12 --overwrite 1 --save_samples 1 --n_samples "
+run = "python main.py --models fla --test_config config/test/rq1.yaml --estimate_pwd 'flippy'    --train_datasets rockyou --max_length 12 --overwrite 1 --save_samples 1 --n_samples "
 
 [tasks.generate]
 description = "Run the application"
