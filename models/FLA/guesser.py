@@ -1,8 +1,7 @@
 import torch
-import numpy as np
-from numpy.random import Generator as NPGenerator
-from typing import Generator
-from torch import Generator as TCGenerator
+from math import ceil
+from typing import Generator, Iterable
+from torch import Generator as TCGenerator, Tensor, float64
 import torch.nn.functional as F
 import gzip
 
@@ -20,48 +19,55 @@ class Guesser:
         self.n_generated_passwords = 0
         self.generated_passwords = []
         self.PASSWORD_END = "\n"
-        self.chunk_size_guesser = self.params["eval"]["chunk_size_guesser"]
-        self.n_generated_passwords = 0
-        self.generated_passwords = []
-        self.PASSWORD_END = "\n"
         self.pwd_end_idx = self.data.tokenizer.char_indices[self.PASSWORD_END]
         self.output_file = output_file
         self.device = device
 
-    def generate(self, x_data):
+    def generate(self, x_data: torch.Tensor) -> torch.Tensor:
         self.model.eval()
         with torch.no_grad():
             output = self.model(x_data)
             output = F.softmax(output, dim=1)
-            output = np.array(output.to("cpu"), dtype=np.float64)
+            output = output.to(dtype=torch.float64)
         return output
 
-    def encode_passwords(self, astring_list):
+    def encode_passwords(self, astring_list: list[str]) -> torch.Tensor:
+        # --- Inside your encode_passwords function ---
+
         max_len = self.max_len
-        x_data = []
+        x_data_tensors = []  # A list to hold our tensors
 
         for password in astring_list:
-            current_password = []
+            # 1. Python part (unavoidable):
+            #    Map chars to indices, truncating to max_len
+            indices = [
+                self.data.tokenizer.char_indices.get(char, 0)
+                for char in password[:max_len]
+            ]
 
-            for char in password:
-                encoded_char = self.data.charmap[char]
-                current_password.append(encoded_char)
+            # 2. Convert to tensor (still on CPU is fine)
+            t = torch.tensor(indices, dtype=torch.long)
 
-            while len(current_password) < max_len:
-                current_password.append(0)
+            # 3. Vectorized padding (replaces your 'while' loop)
+            padding_len = max_len - t.shape[0]
+            if padding_len > 0:
+                # F.pad takes (left_pad, right_pad)
+                t = F.pad(t, (0, padding_len), "constant", 0)
 
-            x_data.append(current_password)
+            x_data_tensors.append(t)
 
-        x_data = torch.tensor(np.array(x_data), dtype=torch.long).to(self.device)
-        x_data = (
-            F.one_hot(x_data, self.data.charmap_size).to(self.device).to(torch.float32)
-        )
-        x_data = (
-            F.one_hot(x_data, self.data.charmap_size).to(self.device).to(torch.float32)
-        )
+        # 4. Create the final batch tensor in one operation
+        #    This is much faster than appending lists and then converting.
+        x_data = torch.stack(x_data_tensors, dim=0).to(self.device)
+
+        # 5. Now, continue with your one-hot encoding
+        x_data = F.one_hot(x_data, self.data.tokenizer.vocab_size).to(torch.float32)
         return x_data
 
-    def relevel_prediction(self, preds, astring):
+    def relevel_prediction(self, preds: torch.Tensor, astring: tuple[str] | str):
+        """
+        Destructive function which relevels preds
+        """
         if isinstance(astring, tuple):
             astring_joined_len = sum(map(len, astring))
         else:
@@ -72,14 +78,14 @@ class Guesser:
         elif len(astring) == self.max_len or (
             isinstance(astring, tuple) and astring_joined_len == self.max_len
         ):
-            multiply = np.zeros(len(preds))
-            multiply[self.pwd_end_idx] = 1
+            multi = torch.zeros(len(preds), dtype=float64, device=self.device)
+            multi[self.pwd_end_idx] = 1
             preds[self.pwd_end_idx] = 1
-            preds = np.multiply(preds, multiply, preds)
+            preds.mul_(multi)
 
-        sum_per = sum(preds)
-        for i, v in enumerate(preds):
-            preds[i] = v / sum_per
+        sum_per = preds.sum()
+        if sum_per > 0:
+            preds /= sum_per  # In-place, vectorized division
 
     def pwd_is_valid(self, pwd):
         if isinstance(pwd, tuple):
@@ -104,139 +110,322 @@ class Guesser:
         return answer
         """
 
-    def relevel_prediction_many(self, pred_list, str_list):
+    def relevel_prediction_many(self, pred_list: torch.Tensor, str_list: list[str]):
         for i, pred_item in enumerate(pred_list):
             self.relevel_prediction(pred_item[0], str_list[i])
 
-    def conditional_probs_many(
-        self, astring_list: list[str]
-    ) -> np.typing.NDArray[np.float64]:
-        x_data = self.data.tokenizer.encode_many(astring_list)
-        x_data = torch.tensor(np.array(x_data), dtype=torch.float32).to(self.device)
+    def conditional_probs_many(self, astring_list: list[str]) -> torch.Tensor:
+        x_data = self.encode_passwords(astring_list)
 
-        answer = self.generate(x_data)
+        answer: torch.Tensor = self.generate(x_data)
         if len(answer.shape) == 2:
-            answer = np.expand_dims(answer, axis=1)
+            answer = answer.unsqueeze(1)
 
         assert answer.shape == (len(astring_list), 1, self.data.tokenizer.vocab_size)
 
         self.relevel_prediction_many(answer, astring_list)
         return answer
 
-    def choose(
-        self,
-        preds: np.typing.NDArray[np.float64] | torch.Tensor,
-        rng: TCGenerator | NPGenerator,
+    def choose(self, preds: torch.Tensor, rng: TCGenerator) -> int:
+        idx = torch.multinomial(
+            preds,
+            num_samples=1,
+            replacement=True,
+            generator=rng,
+        )
+        return int(idx.item())
+
+    # The batch size your GPU can comfortably handle (as per your docstring).
+
+    def _find_optimal_batch_size(
+        self, probe_batch_size: int = 32, safety_margin: float = 0.90
     ) -> int:
-        # Torch path (use if you pass a torch.Generator or preds is a torch.Tensor)
-        if isinstance(rng, TCGenerator) or torch.is_tensor(preds):
-            t = (
-                preds
-                if torch.is_tensor(preds)
-                else torch.as_tensor(preds, dtype=torch.float64, device="cpu")
-            )
-            t = torch.nan_to_num(t, nan=0.0).clamp_min_(0)
-            s = t.sum()
-            if not torch.isfinite(s) or s <= 0:
-                return int(self.pwd_end_idx)
-            t = t / s
-            idx = torch.multinomial(
-                t,
-                num_samples=1,
-                replacement=True,
-                generator=rng if isinstance(rng, TCGenerator) else None,
-            )
-            return int(idx.item())
+        """
+        Probes the GPU to find the largest batch size that can fit in VRAM.
 
-        # NumPy path
-        p = np.asarray(preds, dtype=np.float64)
-        p = np.nan_to_num(p, nan=0.0)
-        p[p < 0.0] = 0.0
-        s = p.sum()
-        if not np.isfinite(s) or s <= 0:
-            return int(self.pwd_end_idx)
-        p /= s
-        if not isinstance(rng, NPGenerator):
-            rng = np.random.default_rng()
-        return int(rng.choice(p.size, p=p))
+        It works by:
+        1. Getting the baseline peak memory for n=1 (for the model + 1 sample's KV cache).
+        2. Getting the peak memory for a small batch (e.g., n=32).
+        3. Calculating the marginal memory cost for each *additional* sample.
+        4. Dividing the available free memory by this marginal cost.
+        """
 
-        """idx: int = -1
-        if isinstance(rng, TCGenerator):
-            tensor_preds: torch.Tensor = torch.tensor(preds)
-            idx = int(torch.multinomial(tensor_preds, 1).item())
-        elif isinstance(rng, NPGenerator):
-            idx = rng.choice(len(preds), p=preds)  # sample next char
+        if "cuda" not in str(self.device):
+            print("CUDA not available. Defaulting to batch size 1024.")
+            return 1024
 
-        return idx"""
+        device = self.device
+        print(
+            f"Probing for optimal batch size on {torch.cuda.get_device_name(device)}..."
+        )
 
-    def sample_one_iid(
-        self, rng: TCGenerator | NPGenerator = np.random.default_rng()
-    ) -> tuple[str, float]:
+        try:
+            # --- 1. Get Baseline Memory (n=1) ---
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats(device)
+
+            # We must *fully consume* the generator to get the *peak* memory
+            # from the longest password (i.e., full KV cache).
+            _ = list(self.iid_sample_batched(1))
+
+            baseline_peak_mem = torch.cuda.max_memory_reserved(device)
+
+            # --- 2. Get Delta Memory (n=probe_batch_size) ---
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats(device)
+
+            _ = list(self.iid_sample_batched(probe_batch_size))
+
+            probe_peak_mem = torch.cuda.max_memory_reserved(device)
+
+            # --- 3. Calculate Marginal Cost ---
+            # Memory for (probe_batch_size - 1) additional samples
+            marginal_mem_for_batch = probe_peak_mem - baseline_peak_mem
+
+            # Memory for *one* additional sample
+            mem_per_sample = marginal_mem_for_batch / (probe_batch_size - 1)
+
+            if mem_per_sample <= 0:
+                # This can happen if the batch size is too small to see a difference.
+                # We'll just use the baseline.
+                print("Warning: Probe was inconclusive. Using baseline.")
+                mem_per_sample = baseline_peak_mem
+
+            # --- 4. Calculate Max Batch Size ---
+            # Get *total* free memory (not just reserved)
+            _, total_mem = torch.cuda.mem_get_info(device)
+
+            # Apply safety margin
+
+            # We already have the baseline model loaded, so we just
+            # see how many *additional* samples fit in the *remaining* usable memory.
+            # (This is a simplified but safe estimation).
+
+            # A more direct calculation:
+            # How much memory do we have *in total* for this op?
+            # Usable = Total_GPU_Memory * safety_margin
+            # We subtract the memory *already used* just to load the model (baseline)
+
+            # Let's use the total available VRAM as our budget.
+            # This is safer.
+            usable_budget = total_mem * safety_margin
+
+            # How many samples can we fit in this budget?
+            # We subtract the "base cost" of the model (baseline - mem_per_sample)
+            # and then divide by the per-sample cost.
+            base_cost = baseline_peak_mem - mem_per_sample
+
+            # How much memory is left for samples?
+            mem_for_samples = usable_budget - base_cost
+
+            max_samples = int(mem_for_samples / mem_per_sample)
+
+            print(f"Probe complete. Optimal batch size: {max_samples}")
+            return max_samples
+
+        except RuntimeError as e:
+            # This happens if even the probe_batch_size OOMs.
+            print(f"Error during probing (likely OOM): {e}")
+            print("Defaulting to batch size 1.")
+            return 1
+
+    def one_batch_to_control_them_all(self, n: int) -> Iterable[float]:
+        # Let's use 8192.
+        # BATCH_SIZE = self._find_optimal_batch_size()
+        BATCH_SIZE = 5_000
+        TOTAL_PASSWORDS_NEEDED = n
+
+        # Calculate how many batches (loops) you'll need.
+        num_batches = ceil(TOTAL_PASSWORDS_NEEDED / BATCH_SIZE)
+
+        print(
+            f"Generating {TOTAL_PASSWORDS_NEEDED:,} passwords in {num_batches:,} batches of {BATCH_SIZE}..."
+        )
+
+        generated_count = 0
+
+        # We will loop `num_batches` times.
+        for i in range(num_batches):
+            # Calculate how many to get in this specific batch.
+            # It's usually BATCH_SIZE, except for the very last batch.
+            n_this_batch = min(BATCH_SIZE, TOTAL_PASSWORDS_NEEDED - generated_count)
+
+            if n_this_batch <= 0:
+                break  # Just in case
+
+            # Call your generator. It will yield `n_this_batch` passwords.
+            # `self` would be an instance of your class.
+            # We wrap this in a loop to consume the generator.
+            for _, prob in self.iid_sample_batched(n_this_batch):
+                yield prob
+
+            generated_count += n_this_batch
+
+            # Optional: Print progress
+            if (i + 1) % 100 == 0:  # Print every 100 batches
+                print(f"Progress: {generated_count:,} / {TOTAL_PASSWORDS_NEEDED:,}")
+
+        print("Done.")
+
+    def iid_sample_batched(self, n: int) -> Generator[tuple[str, float], None, None]:
+        """
+        Generates 'n' passwords in parallel using batching.
+        'n' should be a number that can comfortably fit in GPU memory
+        (e.g., 1000 or 8192).
+        """
+
+        # Create the RNG, just as the original iid_sampler does
+        rng = torch.Generator(device=self.device)
+
+        # `prefixes`: A list of 'n' strings, all starting empty.
+        # We will build "pass", "123", "abc", etc. here.
+        prefixes = [""] * n
+
+        # running log2(probability) for each of the 'n' passwords.
+        log_probs = torch.zeros(n, device=self.device, dtype=torch.float64)
+
+        # It tracks which passwords have hit the END token.
+        # Starts as all False.
+        is_finished = torch.zeros(n, device=self.device, dtype=torch.bool)
+
+        # `encode_passwords` will handle the START_TOKEN implicitly.
+
+        # We loop up to self.max_len to prevent infinite loops.
+        for _ in range(self.max_len):
+            # Stop early if all 'n' passwords have been finished.
+            if is_finished.all():
+                break
+
+            # 3. Encode
+            # `self.encode_passwords` takes our list of 'n' prefixes
+            # and returns a single tensor of shape [n, current_sequence_length].
+            # This is the batch we feed to the model.
+            x_data = self.encode_passwords(prefixes)
+
+            # 4. Generate (The *SINGLE* batched call to the model)
+            # `self.generate` calls the model.
+            # It will return predictions for the *next* character for the whole batch.
+            # `preds` shape: [n, vocab_size]
+            preds = self.generate(x_data)
+
+            # 5. Sample
+            # Normalize probabilities for sampling, same as in `sample_one_iid`
+            #
+            preds_for_sampling = preds.clone()
+            preds_for_sampling[preds_for_sampling < 0] = 0
+            zero_sum_rows = preds_for_sampling.sum(dim=1) == 0
+            if zero_sum_rows.any():
+                # Set prob of END token to 1.0 for any row that is all zero
+                preds_for_sampling[zero_sum_rows, self.pwd_end_idx] = 1.0
+
+            # `torch.multinomial` samples 1 index from each of the 'n' rows.
+            # `next_char_indices` shape: [n, 1]
+            next_char_indices = torch.multinomial(preds_for_sampling, 1, generator=rng)
+
+            # 6. Update Probabilities
+            # We gather the *true* log-probabilities (from the original `preds`)
+            # for the characters we just sampled.
+            # `preds.gather(1, next_char_indices)` shape: [n, 1]
+            # `.squeeze(-1)` shape: [n]
+            chosen_probs = preds.gather(1, next_char_indices).squeeze(-1)
+
+            # We only add the probability if the password is *not* already finished.
+            # `(~is_finished)` is a boolean mask (e.g., [True, True, False, True])
+            log_probs += torch.log2(chosen_probs) * (~is_finished)
+
+            # 7. Update Prefixes and `is_finished` status
+            next_char_indices_flat = next_char_indices.squeeze(-1)
+
+            for i in range(n):
+                # If this password *is* finished, we skip it.
+                if is_finished[i]:
+                    continue
+
+                char_idx = next_char_indices_flat[i].item()
+
+                # Check if the sampled character is the END token
+                if char_idx == self.pwd_end_idx:
+                    is_finished[i] = True
+                    # We don't append the \n, the password is complete.
+                else:
+                    # It's a normal character, append it to the string.
+                    prefixes[i] += self.data.tokenizer.char_list[char_idx]
+
+            # --- End of `for _ in range(self.max_len)` loop ---
+
+        # 3. Finalization
+        # The loop is over. Convert all 'n' log-probs back to linear probs.
+        final_probs = torch.exp2(log_probs)
+
+        # Yield all 'n' results, one by one, to match the generator format.
+        for i in range(n):
+            yield (prefixes[i], final_probs[i].item())
+
+    def sample_one_iid(self, rng: TCGenerator) -> tuple[str, float]:
         """Draw ONE password i.i.d. from the model; return (pwd, prob)."""
         prefix: str = ""
-        prob: float = 0.0
+        prob: torch.Tensor = torch.scalar_tensor(0.0, dtype=float64, device=self.device)
         ch: str = ""
         idx: int = -1
-        p: float = -1
         while True:
-            preds: np.typing.NDArray[np.float64] = self.batch_prob([prefix])[
-                0, 0, :
-            ]  # probs over vocab
+            x_data = self.encode_passwords([prefix])  # 1. Encode the prefix
+            preds: torch.Tensor = self.generate(x_data)[0, :]
+            preds_for_sampling = preds.clone()
 
-            preds = np.asarray(preds, dtype=np.float64).ravel()
-
-            preds = np.clip(preds, 0.0, None)
-            s = preds.sum()
-            if not np.isfinite(s) or s <= 0:
-                # fallback: force EOS or uniform over valid tokens
-                preds = np.zeros_like(preds)
-                preds[self.pwd_end_idx] = 1.0
+            # 3. Normalize the COPY (preds_for_sampling)
+            preds_for_sampling.clamp_min_(0.0)
+            s = preds_for_sampling.sum()
+            if not torch.isfinite(s) or s <= 0:
+                preds_for_sampling = torch.zeros_like(preds_for_sampling)
+                preds_for_sampling[self.pwd_end_idx] = 1.0
             else:
-                preds /= s
-            # relevel_prediction_many already enforced EOS logic / validity
-            idx = self.choose(preds, rng)
-            p = float(np.log2(preds[idx]))
-            prob += p
+                preds_for_sampling /= s
+
+            # 4. Choose using the safe, normalized copy
+            idx = self.choose(preds_for_sampling, rng)
+            prob += torch.log2(preds[idx])
             ch = self.data.tokenizer.char_list[idx]
             if ch == self.PASSWORD_END:
-                return prefix, np.exp2(prob)
-            prefix += ch  # continue
+                return prefix, float(torch.exp2(prob).item())
+            prefix += ch
 
-    def iid_sampler(
-        self, n: int, rng: TCGenerator | NPGenerator = np.random.default_rng()
-    ) -> Generator[tuple[str, float], None, None]:
+    def iid_sampler(self, n: int) -> Generator[tuple[str, float], None, None]:
         """Yield n i.i.d. samples as (pwd, p)."""
+        rng = torch.Generator(device=self.device)
         for _ in range(n):
-            pwd, prob = self.sample_one_iid(rng=rng)
+            pwd, prob = self.sample_one_iid(rng)
             yield (pwd, prob)
 
-    def next_nodes(self, astring, prob, prediction, file_buffer):
+    def next_nodes(
+        self, astring: str, prob: float, prediction: torch.Tensor, file_buffer: list
+    ) -> list:
         total_preds = prediction * prob
         max_len = self.max_len
         if len(astring) + 1 > max_len:
             prob_end = total_preds[self.pwd_end_idx]
             if prob_end >= self.lower_probability_threshold:
-                file_buffer.append(f"{astring} {prob_end}\n")
+                file_buffer.append(f"{astring} {prob_end.item()}\n")
                 self.n_generated_passwords += 1
             return []
 
-        indexes = np.arange(len(total_preds))
+        indexes = torch.arange(len(total_preds)).to(device=self.device)
         above_cutoff = total_preds >= self.lower_probability_threshold
         above_indices = indexes[above_cutoff]
         probs_above = total_preds[above_cutoff]
         answer = []
+        above_indices_cpu = above_indices.cpu()
 
         for i, chain_prob in enumerate(probs_above):
-            char = self.data.tokenizer.char_list[above_indices[i]]
+            char = self.data.tokenizer.char_list[above_indices_cpu[i]]
             if char == self.PASSWORD_END:
-                file_buffer.append(f"{astring} {chain_prob}\n")
+                file_buffer.append(f"{astring} {float(chain_prob.item())}\n")
                 self.n_generated_passwords += 1
             else:
                 chain_pass = astring + char
-                answer.append((chain_pass, chain_prob))
+                answer.append((chain_pass, chain_prob.item()))
         return answer
 
-    def batch_prob(self, prefixes: list[str]) -> np.typing.NDArray[np.float64]:
+    def batch_prob(self, prefixes: list[str]) -> torch.Tensor:
         return self.conditional_probs_many(prefixes)
 
     def password_probability(self, target: str) -> float:
@@ -244,28 +433,23 @@ class Guesser:
         if not self.pwd_is_valid(target):
             return 0.0
 
-        # prefixes to condition on: "", "c", "ci", "cia", "ciao"
         prefixes = [""] + [target[:i] for i in range(1, len(target) + 1)]
-        # next tokens we want the model to choose at each step: "c","i","a","o","\n"
         next_chars = list(target) + [self.PASSWORD_END]
 
-        preds = self.batch_prob(prefixes)  # shape: (len(prefixes), 1, vocab)
-        preds = preds[:, 0, :]  # shape: (len(prefixes), vocab)
+        # Manually encode the prefixes
+        x_data = self.encode_passwords(prefixes)
+        # Call generate DIRECTLY to get pure probabilities
+        preds: Tensor = self.generate(x_data)
 
-        # gather the probabilities for our desired next tokens
         idxs = [self.data.tokenizer.char_indices[ch] for ch in next_chars]
-        step_probs = np.array(
-            [preds[i, idxs[i]] for i in range(len(idxs))], dtype=np.float64
-        )
-        # numerical stability
-
-        step_probs = np.clip(step_probs, np.finfo(np.float64).tiny, 1.0)
-        # step_log2_probs = np.log2(step_probs)
-        # total_log2_prob: float = float(step_log2_probs.sum())
-
-        # # Convert the total log2-prob back to a standard probability
-        # target_prob: float = np.exp2(total_log2_prob)
-        return step_probs.prod()
+        idxs_tensor = torch.tensor(idxs, dtype=torch.long, device=preds.device)
+        rows = torch.arange(preds.shape[0], device=preds.device)
+        step_probs = preds[rows, idxs_tensor]
+        step_probs.clamp_(torch.finfo(float64).tiny, 1.0)
+        step_probs.log2_()
+        final_prob = step_probs.sum()
+        final_prob.exp2_()
+        return float(final_prob.item())
 
     def extract_pwd_from_node(self, node_list):
         return map(lambda x: x[0], node_list)

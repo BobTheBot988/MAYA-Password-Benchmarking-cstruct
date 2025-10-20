@@ -1,11 +1,12 @@
 import gc
 import gzip
 
+from math import ceil
 import os
 import shutil
 import tempfile
 from io import BufferedRandom
-from typing import Dict, Generator
+from typing import Dict, Generator, Iterable
 
 import heapcy
 import numpy as np
@@ -19,6 +20,7 @@ from script.test.model import Model, SampleMode
 from .architecture import LSTM
 from .fla_utils.dataloader import DataLoader
 from .guesser import Guesser
+from models.FLA import guesser
 
 
 def get_lower_probability_threshold(n_samples):
@@ -191,6 +193,15 @@ class FLA(Model):
 
         return min_heap_n_most_prob
 
+    def generate_one_time_pwds(
+        self, evaluation_batch_size: int = 8192
+    ) -> Iterable[float]:
+        # Let's use 8192.
+
+        # Calculate how many batches (loops) you'll need.
+        guess: Guesser = self.guesser_build(self.eval_init(0, 0))
+        return guess.one_batch_to_control_them_all(self.n_samples)
+
     def sample(
         self,
         evaluation_batch_size,
@@ -202,7 +213,7 @@ class FLA(Model):
 
         if self.mode is SampleMode.IID:
             print("[I] - Generating string so that we are iid")
-            return guesser.iid_sampler(self.n_samples)
+            return guesser.iid_sample_batched(self.n_samples)
 
         print("[I] - Generating strings")
         n_gen: int = guesser.complete_guessing()
