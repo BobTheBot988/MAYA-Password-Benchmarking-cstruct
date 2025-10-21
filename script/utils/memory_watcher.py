@@ -5,6 +5,7 @@ import psutil
 import torch
 import time
 
+
 class MemoryWatcher:
     def __init__(self, output_file, device, interval=5):
         self.output_file = output_file
@@ -33,7 +34,9 @@ class MemoryWatcher:
                 vram_usage = self.get_vram_usage()
                 if vram_usage > self.vram_peak:
                     self.vram_peak = vram_usage
-                self.vram_avg = self.vram_avg + ((vram_usage - self.vram_avg) / self.count)
+                self.vram_avg = self.vram_avg + (
+                    (vram_usage - self.vram_avg) / self.count
+                )
             time.sleep(self.interval)
 
     def start(self):
@@ -54,15 +57,20 @@ class MemoryWatcher:
         self.vram_avg = 0
 
     def log_to_file(self):
-        with open(self.output_file, 'a') as f:
-            f.write(f"[M] - RAM: Peak = {self.ram_peak:.2f} MB | Avg = {self.ram_avg:.2f} MB\n")
-            f.write(f"[M] - VRAM: Peak = {self.vram_peak:.2f} MB | Avg = {self.vram_avg:.2f} MB\n")
+        with open(self.output_file, "a") as f:
+            f.write(
+                f"[M] - RAM: Peak = {self.ram_peak:.2f} MB | Avg = {self.ram_avg:.2f} MB\n"
+            )
+            f.write(
+                f"[M] - VRAM: Peak = {self.vram_peak:.2f} MB | Avg = {self.vram_avg:.2f} MB\n"
+            )
 
     def get_ram_usage(self):
-        ram_usage = self.process.memory_info().rss / (1024 ** 2)  # MB
+        ram_usage = self.process.memory_info().rss / (1024**2)  # MB
         return ram_usage
 
     def get_vram_usage(self):
         free, total = torch.cuda.mem_get_info(self.device)
-        vram_usage = (total - free) / (1024 ** 2) # MB
+        vram_usage = (total - free) / (1024**2)  # MB
         return vram_usage
+

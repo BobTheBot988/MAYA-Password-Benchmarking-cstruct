@@ -368,17 +368,16 @@ class Model:
 
     def montecarlo_estimation(self, gen: Optional[Iterable[float]]) -> float:
         """
-        This method should be used to  get the rank of a string for the selected model.
-        Parameters:
-                - self (Model): The model instance. You can access all variables and methods defined in this class, including
-                self.n_samples(the number of samples) and self.estimate_pwd(the string to estimate).
-            - string (str): string to get our probability.
-        Returns:
-             - The rank of the string
+        Monte Carlo rank estimate with in-place variance/CI computation.
 
-        target: p(alpha)
-        returns: (1/n) * sum_{i: A[i] > target} 1/A[i]
+        Estimator:
+            Z_i = 1{p_i > p_target} / p_i
+            rank_hat = (1/n) * sum_i Z_i
+            Var(rank_hat) = Var(Z)/n,  with Var(Z) estimated by sample variance.
         """
+
+        LN2 = math.log(2.0)
+
         print("[I] - Running montecarlo_estimation")
         assert self.n_samples is not None and isinstance(self.n_samples, int)
         if self.n_samples < 1_000:
@@ -388,44 +387,122 @@ class Model:
         elif self.n_samples > 100_000:
             print("[W] - The generation could be slower")
 
-        generator: Generator[float, None, None] | Iterable[float] = (
-            self.get_generator_for_sample_file() if not gen else gen
+        # Prefer explicit None check so an empty iterable doesn't trigger fallback.
+        generator: Iterable[float] = (
+            self.get_generator_for_sample_file() if gen is None else gen
         )
+
         print("[I] - Getting the target probability")
-        target: float = self.get_string_probability()
-        print(f"[I] - Target probability:{target}")
-        print(f"[I] - Error range:{self.error_range(np.log2(target))}")
-        target_tensor: torch.Tensor = torch.scalar_tensor(target, device=self.device)
-        # The probability should be in the -log_2 form
-        target_tensor = -torch.log2(target_tensor) if self.log_2 else target_tensor
-        my_sum_tensor: torch.Tensor = torch.scalar_tensor(
-            0.0, dtype=torch.float64, device=self.device
-        )
-        size_of_array: int = 0
-        chunk: list[float] = list()
+        p_target: float = (
+            self.get_string_probability()
+        )  # must match your sampling policy (mask+relevel)
+        print(f"[I] - Target probability:{p_target}")
+
+        device = self.device
+        dtype = torch.float64  # accumulate in float64 for stability
+
+        # If self.log_2 is True, we’ll compare surprisal (ell = -log2 p); else we compare probs directly
+        target_tensor = torch.tensor(p_target, device=device, dtype=dtype)
+        if self.log_2:
+            target_tensor = -torch.log2(target_tensor)  # ell_target
+
+        # Streaming accumulators
+        sum_Z = torch.zeros((), device=device, dtype=dtype)  # Σ Z_i
+        sum_Z2 = torch.zeros((), device=device, dtype=dtype)  # Σ Z_i^2
+        n_total = 0
+        hits = 0
+
+        # Chunked processing
+        chunk: list[float] = []
         chunk_size: int = 10_000
-        for prob in generator:
-            chunk.append(prob)
-            size_of_array += 1
+
+        def process_chunk(vals: list[float]):
+            nonlocal sum_Z, sum_Z2, n_total, hits
+            if not vals:
+                return
+            x = torch.tensor(vals, device=device, dtype=dtype)
+            n = x.numel()
+            n_total += n
+
+            if self.log_2:
+                # x = ell_i = -log2(p_i); condition p_i > p_t  <=>  ell_i < ell_t
+                mask = x < target_tensor
+                # Z_i = 2^{ell_i} when mask else 0  (since 1/p_i = 2^{ell_i})
+                Zi = torch.zeros_like(x)
+                Zi[mask] = torch.exp2(x[mask])
+            else:
+                # x = p_i; condition p_i > p_t
+                eps = torch.finfo(dtype).tiny
+                mask = x > target_tensor
+                Zi = torch.zeros_like(x)
+                # Guard tiny to avoid 1/0
+                Zi[mask] = 1.0 / x[mask].clamp_min(eps)
+
+            hits += int(mask.sum().item())
+            # accumulate sums
+            sum_Z += Zi.sum()
+            sum_Z2 += (Zi * Zi).sum()
+
+        t0 = time.perf_counter()
+        for p in generator:
+            chunk.append(p)
             if len(chunk) == chunk_size:
-                gen_tensor: Tensor = torch.tensor(chunk, device=self.device)
-                my_sum_tensor += _logic_of_log(self.log_2, gen_tensor, target_tensor)
+                process_chunk(chunk)
                 chunk.clear()
-
-        if len(chunk) > 0:
-            gen_tensor = torch.tensor(chunk, device=self.device)
-            my_sum_tensor += _logic_of_log(self.log_2, gen_tensor, target_tensor)
-            size_of_array += len(chunk) if size_of_array > chunk_size else 0
+        if chunk:
+            process_chunk(chunk)
             chunk.clear()
+        dt = time.perf_counter() - t0
 
-        if size_of_array != self.n_samples:
-            raise ValueError(
-                f"[E] - The number of generated elements is different than the requested amount:{size_of_array},{self.n_samples}"
+        # Sanity: we asked for exactly n_samples draws
+        if n_total != self.n_samples:
+            print(
+                f"[W] - Requested {self.n_samples} samples but processed {n_total}. Using processed count."
             )
-        result: float = my_sum_tensor.item() / self.n_samples
+        n = max(1, n_total)  # guard
 
-        assert result >= 0
-        return result
+        # Rank estimate
+        rank_hat = (sum_Z / n).item()
+        assert rank_hat >= 0
+
+        # Sample variance of Z, then SE of the mean
+        if n_total > 1:
+            var_Z = max(0.0, (sum_Z2.item() - n_total * (rank_hat**2)) / (n_total - 1))
+            SE = math.sqrt(var_Z / n_total)
+        else:
+            var_Z = float("inf")
+            SE = float("inf")
+
+        ess = (sum_Z.item() ** 2) / max(sum_Z2.item(), 1e-300)
+        print(f"[I] - ESS(Z): {ess:.1f} of {n_total}")
+        # Bits (delta method)
+        if rank_hat > 0:
+            bits = math.log(rank_hat, 2.0)
+            SE_bits = SE / (rank_hat * LN2)
+            hw_bits = 1.96 * SE_bits
+            mult = 2.0**hw_bits
+            print(
+                f"[I] - size_of_array:{n_total},#samples:{self.n_samples},#hits:{(hits / n_total) * 100:.1f}%"
+            )
+            print(f"[T] - Estimation completed after: {dt:0.2f}s")
+            print(f"[I] - The rank of the password({self.estimate_pwd}) was:{rank_hat}")
+            print(f"[I] - log2(rank): {bits:.6f} bits  ± {hw_bits:.6f} (95%)")
+            print(
+                f"[I] - 95% CI (rank): [{rank_hat / mult:.3f}, {rank_hat * mult:.3f}]"
+            )
+        else:
+            print(
+                f"[I] - size_of_array:{n_total},#samples:{self.n_samples},#hits:{(hits / n_total) * 100:.1f}%"
+            )
+            print(f"[T] - Estimation completed after: {dt:0.2f}s")
+            print(
+                f"[I] - The rank of the password({self.estimate_pwd}) was:{rank_hat} (zero)"
+            )
+            print(
+                "[W] - Zero estimate; report a conservative one-sided bound if needed."
+            )
+
+        return float(rank_hat)
 
     def enumeration_of_pwd(self) -> int:
         """
@@ -952,4 +1029,5 @@ def _logic_of_log(log_2: bool, gen_tensor: Tensor, target_tensor: Tensor) -> Ten
 
         # 3. Safely calculate 1 / ell (the ^-1 part)
         valid_elements.pow_(-1)
+
     return valid_elements.sum()
