@@ -1,0 +1,10 @@
+bench_toy:
+  script: "" # not used
+  evaluation_script: "script/test/bench_toy.py"
+  figure_script: "" # leave empty unless you add a plotter
+
+  general_params:
+    seed: 0
+    toy_n: 10000
+    toy_s: 1.15
+    n_samples: [1000, 3000, 10000, 30000]

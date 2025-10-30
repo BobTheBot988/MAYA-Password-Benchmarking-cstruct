@@ -27,3 +27,8 @@ fla:
   class_name: FLA
   path_to_class: models.FLA.FLA
   path_to_config: ./models/FLA/CONF/config.yaml
+toymodel:
+  class_name: ToyModel
+  path_to_class: models.ToyModel.ToyModel
+  path_to_config: ./models/ToyModel/CONF/config.yaml
+

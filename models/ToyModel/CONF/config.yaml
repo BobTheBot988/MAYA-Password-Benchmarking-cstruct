@@ -1,0 +1,11 @@
+general_params:
+  seed: 0
+
+train_params:
+  # Not used by ToyModel but kept for consistency
+  max_epochs: 0
+
+eval_params:
+  toy_n: 10000
+  toy_s: 1.15
+  log_2: true

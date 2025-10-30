@@ -18,6 +18,12 @@ description = "Install dependencies"
 alias = "i"
 run = "uv pip install -r requirements.txt"
 
+# run with ``mise r u``
+[tasks.moderninstall]
+description = "Install deps using uv"
+alias = "u"
+run = "uv sync"
+
 [tasks.clean]
 description = "Clean output files"
 alias = "c"
@@ -25,11 +31,11 @@ run = "cd ./results/"
 
 [tasks.estimate]
 description = "Run the application"
-run = "python main.py --models fla --test_config config/test/rq1.yaml --estimate_pwd 'flippy'    --train_datasets rockyou --max_length 12 --overwrite 1 --save_samples 1 --n_samples "
+run = "python main.py --models fla --test_config config/test/rq1.yaml --estimate_pwd 'bestfriend'    --train_datasets rockyou --max_length 12 --overwrite 1 --save_samples 1 --n_samples '@'"
 
 [tasks.generate]
 description = "Run the application"
-run = "python main.py --models fla --test_config config/test/rq1.yaml --train_datasets rockyou --max_length 12 --overwrite 1 --n_samples "
+run = "python main.py --models fla --test_config config/test/rq1.yaml --train_datasets rockyou --max_length 12 --overwrite 1 --n_samples '@'"
 
 [tasks.test]
 description = "Run tests"

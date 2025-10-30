@@ -1,7 +1,6 @@
 import gc
 import gzip
 
-from math import ceil
 import os
 import shutil
 import tempfile
@@ -15,12 +14,11 @@ import torch.nn.functional as F
 from torch.optim import Optimizer
 from tqdm import tqdm
 
-from script.test.model import Model, SampleMode
+from script.test.model import Model
 
 from .architecture import LSTM
 from .fla_utils.dataloader import DataLoader
 from .guesser import Guesser
-from models.FLA import guesser
 
 
 def get_lower_probability_threshold(n_samples):
@@ -210,10 +208,6 @@ class FLA(Model):
     ) -> Generator[str, None, None] | Generator[tuple[str, float], None, None]:
         if not guesser:
             guesser = self.guesser_build(eval_dict)
-
-        if self.mode is SampleMode.IID:
-            print("[I] - Generating string so that we are iid")
-            return guesser.iid_sample_batched(self.n_samples)
 
         print("[I] - Generating strings")
         n_gen: int = guesser.complete_guessing()

@@ -28,6 +28,11 @@ def parse_args():
         help="Model(s) to run. Must match keys in model_settings.yaml.",
     )
     general.add_argument(
+        "--fast",
+        action="store_true",
+        help="Enable fast mode. Runs fast-estimation or fast-evaluation.",
+    )
+    general.add_argument(
         "--display_logs",
         type=int,
         choices=[0, 1],

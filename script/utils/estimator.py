@@ -23,7 +23,9 @@ def generator_tmp_file(
             to avoid such problems, we store and compute the base-2 logarithms of probabilities rather than probabilities themselves'
 
             ccs15 page 5, implementation details https://www.dcs.gla.ac.uk/~maurizio/Publications/ccs15.pdf
-            """
-        # yield -log2(float(token.decode(encoding, errors="replace")))
+        """
 
         yield float(token.decode(encoding, errors="replace"))
+
+
+def fast_estimate(): ...

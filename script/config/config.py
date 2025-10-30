@@ -40,7 +40,7 @@ def args_to_dict(obj):
     raise ValueError("Input must be a dict or argparse.Namespace")
 
 
-T = TypeVar("T", int, float, str)
+T = TypeVar("T", int, float, str, bool)
 
 
 def build_args_settings(dict) -> dict[str, dict[str, T]]:
@@ -52,6 +52,7 @@ def build_args_settings(dict) -> dict[str, dict[str, T]]:
             "overwrite": dict.get("overwrite"),
             "path_to_checkpoint": dict.get("path_to_checkpoint"),
             "n_samples": dict.get("n_samples"),
+            "fast": dict.get("fast"),
             "estimate_pwd": dict.get("estimate_pwd"),
             "test_config": dict.get("test_config"),
             "guesses_file": dict.get("guesses_file"),

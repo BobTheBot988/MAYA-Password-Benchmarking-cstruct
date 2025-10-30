@@ -1,5 +1,5 @@
 import glob
-import numpy as np
+from types import FunctionType
 import gzip
 import math
 import os
@@ -7,9 +7,8 @@ import pickle
 import shutil
 import time
 from datetime import timedelta
-from typing import Dict, Generator, Iterable, Literal, Optional
+from typing import Any, Dict, Generator, Iterable, Literal, Optional
 
-from enum import Enum
 import torch
 from torch.types import Tensor
 from tqdm import tqdm
@@ -20,9 +19,15 @@ from script.utils.file_operations import redirect_stderr, redirect_stdout, write
 from script.utils.memory_watcher import MemoryWatcher
 
 
-class SampleMode(Enum):
-    TOPK = 0
-    IID = 1
+def method_decorator(func: FunctionType):
+    def wrapper(self, *args, **kwargs) -> Any:
+        assert isinstance(func, FunctionType)
+        print(f"[I] - running: {func.__name__}")
+        result: Any = func(self, *args, **kwargs)
+        print("[I] - Completed")
+        return result
+
+    return wrapper
 
 
 class Model:
@@ -52,21 +57,8 @@ class Model:
 
         status = self._run_embedding()
 
-        self.mode = (
-            SampleMode.IID
-            if (not status) and (self.estimate_pwd != "None")
-            else SampleMode.TOPK
-        )
         self.log_2 = False
-        self._prepare_sample_paths()
-        if (not status) and (self.estimate_pwd != "None"):
-            print(
-                f"[I] - Started the estimation of the given password:{self.estimate_pwd}"
-            )
-            self._run_training_and_estim()
-            return
-        elif not status:
-            self._run_training_and_eval()
+        self._run_configured_task(status)
 
     def _parse_settings(self):
         # --- General settings ---
@@ -78,6 +70,7 @@ class Model:
         self.save_guesses = int(self.settings["save_guesses"])
         self.save_matches = int(self.settings["save_matches"])
         self.save_samples = int(self.settings["save_samples"])
+        self.fast = bool(self.settings.get("fast"))
 
         # --- Dataset related settings ---
         self.train_hash = self.settings["train_hash"]
@@ -124,7 +117,7 @@ class Model:
         os.makedirs(self.path_to_samples_dir, exist_ok=True)
         self.path_to_samples_file = os.path.join(
             self.path_to_samples_dir,
-            "samples.topk.gz" if self.mode is SampleMode.TOPK else "samples.iid.gz",
+            "samples.iid.gz",
         )
 
     def _setup_logging(self):
@@ -161,6 +154,34 @@ class Model:
             print("[I] - No specific checkpoint or autoload passed.")
             print("[I] - No specific checkpoint or autoload passed.")
 
+    def _run_configured_task(self, status):
+        """
+        Runs the single highest-priority task based on object configuration.
+        """
+        if status:
+            print("[I] - Task already completed (status=True).")
+            return
+
+        if self.estimate_pwd != "None":
+            # --- TASK: ESTIMATION ---
+            if self.fast:
+                self._run_fast_estim()
+            else:
+                self._run_training_and_estim()
+            status = True
+        else:
+            # --- TASK: EVALUATION ---
+            if self.fast:
+                self._run_fast_eval()
+            else:
+                self._run_training_and_eval()
+
+            status = True
+
+        if not status:
+            print("[W] - No action was triggered based on configuration.")
+
+    @method_decorator
     def _run_fast_eval(self):
         n_samples_to_evaluate = sorted(self.settings.get("n_samples"))
 
@@ -199,6 +220,7 @@ class Model:
         if self.save_samples:
             _create_and_clean_dir(self.path_to_samples_dir)
 
+    @method_decorator
     def _run_training_and_eval(self) -> None:
         self._prepare_directories()
 
@@ -215,7 +237,40 @@ class Model:
             )
             self.save_stats(output)
 
+    @method_decorator
+    def _run_fast_estim(self) -> bool | str:
+        n_samples_to_estimate = int(self.settings.get("n_samples"))
+
+        if not self.overwrite:
+            if os.path.isfile(self.path_to_samples_dir):
+                output = fast_eval(
+                    self.path_to_test_dataset,
+                    n_samples_to_estimate,
+                    self.path_to_samples_dir,
+                )
+                self.save_stats(output)
+                return True
+
+        sub_samples_from_file = str(self.settings.get("sub_samples_from_file", False))
+        guesses_file = self.settings.get("guesses_file", False)
+
+        sub_samples_from_file = check_skip_generation(sub_samples_from_file)
+        guesses_file = check_skip_generation(guesses_file)
+
+        if sub_samples_from_file:
+            sub_sample(sub_samples_from_file, n_samples_to_estimate)
+
+        if guesses_file:
+            output = fast_eval(
+                self.path_to_test_dataset, n_samples_to_estimate, guesses_file
+            )
+            self.save_stats(output)
+
+        return sub_samples_from_file or guesses_file
+
+    @method_decorator
     def _run_training_and_estim(self) -> None:
+        self._prepare_sample_paths()
         self.start_train(self.checkpoint_name)
 
         rank = self.start_estimation(self.checkpoint_name)
@@ -272,6 +327,7 @@ class Model:
             )
             os.rename(source_path, output_path)
 
+    @method_decorator
     def get_generator_for_sample_file(self) -> Generator[float, None, None]:
         """
 
@@ -311,10 +367,12 @@ class Model:
 
                 yield fl
 
+    @method_decorator
     def post_iid_sampling(self):
         if not self.save_samples and os.path.exists(self.path_to_samples_file):
             os.remove(self.path_to_samples_file)
 
+    @method_decorator
     def generate_one_time_pwds(self) -> Iterable[float]:
         """
         **TO BE IMPLEMENTED BY SUBCLASS.**
@@ -339,6 +397,7 @@ class Model:
             "This method should be implemented by the subclass, if the model is explicit it's easy.\nOtherwise it can be difficult, consult the documentation."
         )
 
+    @method_decorator
     def get_string_probability(self) -> float:
         """
         **TO BE IMPLEMENTED BY SUBCLASS.**
@@ -363,9 +422,7 @@ class Model:
             "This method should be implemented by the subclass, if the model is explicit it's easy.\nOtherwise it can be difficult, consult the documentation."
         )
 
-    def error_range(self, target: float) -> float:
-        return np.exp2(target - 1) / np.sqrt(self.n_samples)
-
+    @method_decorator
     def montecarlo_estimation(self, gen: Optional[Iterable[float]]) -> float:
         """
         Monte Carlo rank estimate with in-place variance/CI computation.
@@ -376,7 +433,7 @@ class Model:
             Var(rank_hat) = Var(Z)/n,  with Var(Z) estimated by sample variance.
         """
 
-        LN2 = math.log(2.0)
+        LN2 = 0.6931471805599453
 
         print("[I] - Running montecarlo_estimation")
         assert self.n_samples is not None and isinstance(self.n_samples, int)
@@ -388,9 +445,11 @@ class Model:
             print("[W] - The generation could be slower")
 
         # Prefer explicit None check so an empty iterable doesn't trigger fallback.
-        generator: Iterable[float] = (
-            self.get_generator_for_sample_file() if gen is None else gen
-        )
+        generator: Iterable[float]
+        if gen:
+            generator = gen
+        else:
+            raise ValueError("The generator must be something")
 
         print("[I] - Getting the target probability")
         p_target: float = (
@@ -623,14 +682,12 @@ class Model:
         )
 
         print(s)
-        gen: Iterable[float] = list()
-        if True:
-            # if self.generate_one_time:
-            gen = self.generate_one_time_pwds()
-        elif not os.path.exists(file_to_load):
-            gen = self.iid_evaluation()
-        else:
-            gen = self.get_generator_for_sample_file()
+
+        gen: Iterable[float] = (
+            self.generate_one_time_pwds()
+            if not os.path.exists(file_to_load)
+            else self.get_generator_for_sample_file()
+        )
         rank: float = self.montecarlo_estimation(gen)
 
         estim_end = time.time()
@@ -640,7 +697,8 @@ class Model:
 
         return rank
 
-    def _run_embedding(self):
+    @method_decorator
+    def _run_embedding(self) -> bool:
         if self.settings["data_to_embed"]:
             try:
                 file_to_load = os.path.join(
@@ -738,66 +796,6 @@ class Model:
                 self.write_to_file(self.path_to_guesses_file, self.guesses)
                 self.guesses = []
 
-    def iid_evaluation(self, *, validation_mode: bool = False) -> Iterable[float]:
-        """
-        Generate exactly self.n_samples i.i.d. samples and (optionally) write them to gzip.
-        Returns the # of samples produced.
-        """
-        batch = int(self.params["eval"]["evaluation_batch_size"])
-        n_full, rem = divmod(self.n_samples, batch)
-        total_batches = n_full + (1 if rem else 0)
-
-        # Init eval dict and ensure we're in IID mode
-        eval_dict = self.eval_init(self.n_samples, batch)
-
-        count = 0
-        # Only open the file if we actually want to save
-        f = (
-            gzip.open(self.path_to_samples_file, "wt", compresslevel=1)
-            if self.save_samples
-            else None
-        )
-        try:
-            with tqdm(total=self.n_samples, desc="Generating i.i.d. samples") as pbar:
-                for b_ix in range(total_batches):
-                    b = batch if b_ix < n_full else rem if rem else batch
-                    if b == 0:  # possible when n is multiple of batch
-                        continue
-
-                    generated: (
-                        list[str]
-                        | Generator[str, None, None]
-                        | Generator[tuple[str, float], None, None]
-                    ) = self.sample(b, eval_dict)
-
-                    if self.save_samples:
-                        buf = []
-                        for pwd, ell in generated:
-                            buf.append(f"{pwd} {ell}\n")
-                            count += 1
-                        assert f is not None
-                        f.writelines(buf)
-                    else:
-                        for _pwd, _ell in generated:
-                            _ell = float(_ell)
-                            yield _ell
-                            count += 1
-
-                    pbar.update(b)
-
-                pbar.set_postfix(
-                    {"sampled_%": round(100.0 * count / self.n_samples, 2)}
-                )
-        finally:
-            if f is not None:
-                f.close()
-
-        if count != self.n_samples:
-            # Make it loud if your generator under/over-produced
-            raise RuntimeError(f"Expected {self.n_samples} samples, got {count}")
-
-        self.post_iid_sampling()
-
     def evaluate(
         self, n_samples, evaluation_batch_sizedation_mode=False, validation_mode=False
     ) -> tuple[int, str, int]:
@@ -812,7 +810,7 @@ class Model:
         else:
             n_batches = math.floor(n_samples / evaluation_batch_size)
 
-        eval_dict = self.eval_init(n_samples, evaluation_batch_size)
+        eval_dict: Dict = self.eval_init(n_samples, evaluation_batch_size)
 
         progress_bar = tqdm(range(n_batches))
         progress_bar.set_description(desc="Generating sample batch")
