@@ -1,6 +1,5 @@
 bench_toy:
   script: "" # not used
-  evaluation_script: "script/test/bench_toy.py"
   figure_script: "" # leave empty unless you add a plotter
 
   general_params:
