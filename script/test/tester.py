@@ -402,6 +402,7 @@ class Tester:
             "output_path": str(output_path),
             "path_to_checkpoint": test_settings.get("path_to_checkpoint", False),
             "autoload": test_settings.get("autoload", False),
+            "test": test_settings.get("test", False),
             "display_logs": test_settings.get("display_logs", False),
             "data_to_embed": test_settings.get("data_to_embed", False),
             "guesses_file": test_settings.get("guesses_file", False),

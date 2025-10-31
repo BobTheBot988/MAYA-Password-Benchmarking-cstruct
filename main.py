@@ -33,6 +33,11 @@ def parse_args():
         help="Enable fast mode. Runs fast-estimation or fast-evaluation.",
     )
     general.add_argument(
+        "--test",
+        action="store_true",
+        help="Enable test. Runs monte_carlo_test.",
+    )
+    general.add_argument(
         "--display_logs",
         type=int,
         choices=[0, 1],

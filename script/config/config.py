@@ -53,6 +53,7 @@ def build_args_settings(dict) -> dict[str, dict[str, T]]:
             "path_to_checkpoint": dict.get("path_to_checkpoint"),
             "n_samples": dict.get("n_samples"),
             "fast": dict.get("fast"),
+            "test": dict.get("test"),
             "estimate_pwd": dict.get("estimate_pwd"),
             "test_config": dict.get("test_config"),
             "guesses_file": dict.get("guesses_file"),

@@ -7,8 +7,7 @@ import pickle
 import shutil
 import time
 from datetime import timedelta
-from typing import Any, Dict, Generator, Iterable, Literal, Optional
-
+from typing import Any, Dict, Generator, Iterable, Literal, Optional, Tuple, List
 import torch
 from torch.types import Tensor
 from tqdm import tqdm
@@ -71,6 +70,7 @@ class Model:
         self.save_matches = int(self.settings["save_matches"])
         self.save_samples = int(self.settings["save_samples"])
         self.fast = bool(self.settings.get("fast"))
+        self.test = bool(self.settings.get("test"))
 
         # --- Dataset related settings ---
         self.train_hash = self.settings["train_hash"]
@@ -161,25 +161,27 @@ class Model:
         if status:
             print("[I] - Task already completed (status=True).")
             return
-
-        if self.estimate_pwd != "None":
+        if self.test:
+            result = self.montecarlo_test()
+        elif self.estimate_pwd != "None":
             # --- TASK: ESTIMATION ---
             if self.fast:
-                self._run_fast_estim()
+                result = self._run_fast_estim()
             else:
-                self._run_training_and_estim()
+                result = self._run_training_and_estim()
             status = True
         else:
             # --- TASK: EVALUATION ---
             if self.fast:
-                self._run_fast_eval()
+                result = self._run_fast_eval()
             else:
-                self._run_training_and_eval()
+                result = self._run_training_and_eval()
 
             status = True
 
         if not status:
             print("[W] - No action was triggered based on configuration.")
+        return result
 
     @method_decorator
     def _run_fast_eval(self):
@@ -276,6 +278,31 @@ class Model:
         rank = self.start_estimation(self.checkpoint_name)
 
         print(f"[I] - The rank of the password({self.estimate_pwd}) was:{rank}")
+
+    def start_estimation(self, checkpoint_name: str) -> float:
+        print("[I] - Searching for a checkpoint for evaluation...")
+
+        file_to_load = os.path.join(self.path_to_checkpoint_dir, self.checkpoint_name)
+        status = self.load(file_to_load)
+
+        if not status:
+            print("[I] - No checkpoint found. Starting the training model normally.")
+            self.start_train(checkpoint_name)
+            status = self.load(file_to_load)
+
+        print("[I] - Checkpoint loaded successfully. Initiating model evaluation.")
+
+        self.memory_watcher.reset()
+        self.memory_watcher.start()
+        eval_start = time.time()
+
+        rank = self.montecarlo_estimation()
+
+        eval_end = time.time()
+        time_delta = timedelta(seconds=eval_end - eval_start)
+        print(f"[T] - Evaluation completed after: {time_delta}")
+        self.memory_watcher.stop()
+        return rank
 
     def save_stats(self, output):
         if output:
@@ -632,7 +659,7 @@ class Model:
             print(f"[T] - Training completed after: {time_delta}")
             self.memory_watcher.stop()
 
-    def start_eval(self, checkpoint_name):
+    def start_eval(self, checkpoint_name) -> Tuple[int, str, int]:
         print("[I] - Searching for a checkpoint for evaluation...")
 
         file_to_load = os.path.join(self.path_to_checkpoint_dir, self.checkpoint_name)
@@ -657,45 +684,168 @@ class Model:
         self.memory_watcher.stop()
         return matches, match_percentage, test_size
 
-    def start_estimation(self, checkpoint_name: str) -> float:
-        print("[I] - Searching for a checkpoint for estimation...")
-
-        file_to_load = os.path.join(self.path_to_checkpoint_dir, self.checkpoint_name)
-        status = self.load(file_to_load)
-
-        if not status:
-            print("[I] - No checkpoint found. Starting the training model normally.")
-            self.start_train(checkpoint_name)
-            status = self.load(file_to_load)
-
-        print("[I] - Checkpoint loaded successfully. Initiating model estimation.")
-
-        self.memory_watcher.reset()
-        self.memory_watcher.start()
-        estim_start = time.time()
-
-        file_to_load = self.path_to_samples_file
-        s = (
-            "[I] - The sample file exists"
-            if os.path.exists(file_to_load)
-            else "[I] - The sample file does not exist"
+    def build_mc_curve(self) -> Tuple[Tensor, Tensor]:
+        # returns A(desc), C, meta
+        probs: Tensor = torch.tensor(
+            tuple(self.generate_one_time_pwds()),
+            dtype=torch.float64,
+            device=self.device,
         )
 
-        print(s)
+        if self.log_2:
+            torch.log2_(probs)
+            torch.mul(probs, -1, out=probs)
+            A: Tensor = torch.tensor(
+                torch.sort(probs)[0], device=self.device, dtype=torch.float64
+            )  # ascending surprisal
+            C: Tensor = (
+                torch.cumsum(torch.exp2(-A)) / self.n_samples
+            )  # compute on ascending then reorder
+            A = A[::-1]
+            # C must be computed using 2^{ell}, careful: C = cumsum(2^{ell})/n
+            C = C[::-1]
+        else:
+            A: Tensor = torch.tensor(
+                torch.sort(probs, descending=True)[0],
+                device=self.device,
+                dtype=torch.float64,
+            )
+            C: Tensor = (
+                torch.cumsum(torch.pow(A, torch.scalar_tensor(-1))) / self.n_samples
+            )
+        return A, C
 
-        gen: Iterable[float] = (
-            self.generate_one_time_pwds()
-            if not os.path.exists(file_to_load)
-            else self.get_generator_for_sample_file()
+    def montecarlo_test(
+        self,
+        write_csv: bool = True,
+        out_dir: str = "results/mc_accuracy",
+    ):
+        """
+        For the model, take the top-K (by true model prob or approximate via large sample),
+        then estimate each password's rank using a single Monte-Carlo curve (A,C) and
+        report errors en-masse.
+
+        Args:
+            K: int - number of top passwords to evaluate (default 100k)
+            write_csv: bool - whether to write per-password CSV
+            out_dir: output directory for CSVs
+
+        Returns:
+            summary: dict with overall and per-bucket aggregates
+        """
+
+        # -------------------------
+        # 1) Obtain top-K list: list of (pwd, prob)
+        # -------------------------
+        # Prefer an exact enumeration API if your model has it:
+        #   topk = self.enumerate_topk(K)
+        # If not available, approximate by a large sample (M >> K) and keep the highest-prob uniques.
+        # Try an exact/topk method (implement if you have it)
+        eval_dict: Dict = self.eval_init(self.n_samples, 0)
+        topk_list: Tuple[Tuple[str, float]] = tuple(self.sample(0, eval_dict))
+        # -------------------------
+        # 2) Build or reuse MC curve
+        # -------------------------
+        A, C = self.build_mc_curve()  # A: descending probs tensor, C aligned
+        # ensure A is on CPU and numpy-friendly
+        A_cpu = (
+            A.cpu() if isinstance(A, Tensor) else torch.tensor(A, dtype=torch.float64)
         )
-        rank: float = self.montecarlo_estimation(gen)
+        C_cpu = (
+            C.cpu() if isinstance(C, Tensor) else torch.tensor(C, dtype=torch.float64)
+        )
 
-        estim_end = time.time()
-        time_delta = timedelta(seconds=estim_end - estim_start)
-        print(f"[T] - Estimation completed after: {time_delta}")
-        self.memory_watcher.stop()
+        # We'll search using the -A trick (searchsorted expects ascending input).
+        negA = (-A_cpu).contiguous()
 
-        return rank
+        # -------------------------
+        # 3) Iterate top-K and estimate ranks
+        # -------------------------
+        rows: List[Tuple[str, float, float, float, float, float]] = []
+        # real_rank is strict rank: count of items with p > p(pw) within the full universe.
+        # For top-K where we only have the top-K ordering, we define real_rank as its position (0-based)
+        # which is consistent for comparing relative error inside top-K.
+        for idx, (pw, pval) in enumerate(topk_list):
+            # convert pval depending on log2 mode
+            if getattr(self, "log_2", False):
+                # If pval here is probability, convert to surprisal key:
+                # key = -log2(p)
+                key_val = float(-math.log2(max(pval, 1e-300)))
+                # search in -A if A stores probs descending OR if A stored p we need -A trick
+                # Our A is descending probs -> -A ascending. For surprisal-mode, we must convert to p for comparison
+                # Safer path: convert key to probability and search in -A
+                key_prob = 2 ** (-key_val)  # p value
+                search_key = -torch.tensor(key_prob, dtype=negA.dtype)
+            else:
+                # raw probability
+                key_prob = float(pval)
+                search_key = -torch.tensor(key_prob, dtype=negA.dtype)
+
+            # torch.searchsorted requires same device/dtype
+            j = torch.searchsorted(negA, search_key, right=True).item() - 1
+            if j < 0:
+                r_hat = 0.0
+            else:
+                r_hat = float(C_cpu[j].item())
+
+            real_r = float(idx)  # position inside top-K (0-based)
+            abs_err = abs(r_hat - real_r)
+            rel_err = abs_err / max(1.0, real_r)
+
+            rows.append((pw, float(pval), r_hat, real_r, abs_err, rel_err))
+
+        # -------------------------
+        # 4) Bucketed summaries
+        # -------------------------
+        # buckets keyed by max-rank inclusive (these are illustrative)
+        buckets = {
+            1_000: [],
+            10_000: [],
+            100_000: [],
+            1_000_000: [],
+        }
+        for i, (_, _p, r_hat, real_r, ae) in enumerate(rows):
+            rank1 = int(real_r) + 1  # convert to 1-based for bucket tests
+            for b in sorted(buckets.keys()):
+                if rank1 <= b:
+                    buckets[b].append(ae)
+                    break
+
+        bucket_summary: Dict[int, Dict[str, float]] = {}
+        for b, vals in buckets.items():
+            if len(vals) == 0:
+                bucket_summary[b] = {"count": 0, "median_abs_err": float("nan")}
+            else:
+                vals_sorted = sorted(vals)
+                m = vals_sorted[len(vals_sorted) // 2]
+                bucket_summary[b] = {"count": len(vals), "median_abs_err": float(m)}
+
+        # -------------------------
+        # 5) Write CSV of per-password results (optional)
+        # -------------------------
+        if write_csv:
+            import csv
+
+            _create_and_clean_dir(out_dir)
+            csv_path = out_dir + f"mc_accuracy_top{len(topk_list)}.csv"
+            with open(csv_path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(
+                    ["pwd", "p_model", "r_hat", "r_true_pos", "abs_err", "rel_err"]
+                )
+                for row in rows:
+                    w.writerow(row)
+
+        # Print small summary
+        print(f"[I] - Top-K tested: {len(topk_list)}")
+        print("[I] - Bucket summary (median absolute error):")
+        for b in sorted(bucket_summary.keys()):
+            info = bucket_summary[b]
+            print(
+                f"   <= {b:>8}: count={info['count']:>6}  median_abs_err={info['median_abs_err']}"
+            )
+
+        return {"rows": rows, "buckets": bucket_summary}
 
     @method_decorator
     def _run_embedding(self) -> bool:
