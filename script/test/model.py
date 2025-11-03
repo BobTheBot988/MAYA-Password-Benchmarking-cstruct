@@ -162,7 +162,7 @@ class Model:
             print("[I] - Task already completed (status=True).")
             return
         if self.test:
-            result = self.montecarlo_test()
+            result = self._run_montecarlo_test()
         elif self.estimate_pwd != "None":
             # --- TASK: ESTIMATION ---
             if self.fast:
@@ -182,6 +182,34 @@ class Model:
         if not status:
             print("[W] - No action was triggered based on configuration.")
         return result
+
+    def start_montecarlo_test(self, checkpoint_name: str) -> None:
+        print("[I] - Searching for a checkpoint for Montecarlo Test...")
+
+        file_to_load = os.path.join(self.path_to_checkpoint_dir, self.checkpoint_name)
+        status = self.load(file_to_load)
+
+        if not status:
+            print("[I] - No checkpoint found. Starting the training model normally.")
+            self.start_train(checkpoint_name)
+            status = self.load(file_to_load)
+
+        print("[I] - Checkpoint loaded successfully. Initiating Montecarlo Test.")
+
+        self.memory_watcher.reset()
+        self.memory_watcher.start()
+        eval_start = time.time()
+
+        self.montecarlo_test()
+
+        eval_end = time.time()
+        time_delta = timedelta(seconds=eval_end - eval_start)
+        print(f"[T] - Montecarlo Test completed after: {time_delta}")
+        self.memory_watcher.stop()
+
+    @method_decorator
+    def _run_montecarlo_test(self):
+        self.start_montecarlo_test(self.checkpoint_name)
 
     @method_decorator
     def _run_fast_eval(self):
@@ -219,8 +247,6 @@ class Model:
             _create_and_clean_dir(self.path_to_guesses_dir)
         if self.save_matches:
             _create_and_clean_dir(self.path_to_matches_dir)
-        if self.save_samples:
-            _create_and_clean_dir(self.path_to_samples_dir)
 
     @method_decorator
     def _run_training_and_eval(self) -> None:
@@ -273,14 +299,13 @@ class Model:
     @method_decorator
     def _run_training_and_estim(self) -> None:
         self._prepare_sample_paths()
-        self.start_train(self.checkpoint_name)
 
         rank = self.start_estimation(self.checkpoint_name)
 
         print(f"[I] - The rank of the password({self.estimate_pwd}) was:{rank}")
 
     def start_estimation(self, checkpoint_name: str) -> float:
-        print("[I] - Searching for a checkpoint for evaluation...")
+        print("[I] - Searching for a checkpoint for Estimation...")
 
         file_to_load = os.path.join(self.path_to_checkpoint_dir, self.checkpoint_name)
         status = self.load(file_to_load)
@@ -685,7 +710,16 @@ class Model:
         return matches, match_percentage, test_size
 
     def build_mc_curve(self) -> Tuple[Tensor, Tensor]:
-        # returns A(desc), C, meta
+        """
+        This was done according to the ccs15 paper page 4 section 3.2:
+        https://www.dcs.gla.ac.uk/~maurizio/Publications/ccs15.pdf
+        I made it with tensor so it should be faster, we still need to divide it in batches so to fasten it up
+        Returns:
+            A the array containing the sorted descending probabilities of the generated passwords,
+            C The array containing the rank of each password Mirroring the A array,
+            so at A[0] we have probability alpha, the rank for every password with the same probability is found at C[0]
+            and so on for every i >=0.
+        """
         probs: Tensor = torch.tensor(
             tuple(self.generate_one_time_pwds()),
             dtype=torch.float64,
@@ -696,10 +730,10 @@ class Model:
             torch.log2_(probs)
             torch.mul(probs, -1, out=probs)
             A: Tensor = torch.tensor(
-                torch.sort(probs)[0], device=self.device, dtype=torch.float64
+                torch.sort(probs), device=self.device, dtype=torch.float64
             )  # ascending surprisal
             C: Tensor = (
-                torch.cumsum(torch.exp2(-A)) / self.n_samples
+                torch.cumsum(torch.exp2(-A), 0) / self.n_samples
             )  # compute on ascending then reorder
             A = A[::-1]
             # C must be computed using 2^{ell}, careful: C = cumsum(2^{ell})/n
@@ -711,7 +745,7 @@ class Model:
                 dtype=torch.float64,
             )
             C: Tensor = (
-                torch.cumsum(torch.pow(A, torch.scalar_tensor(-1))) / self.n_samples
+                torch.cumsum(torch.pow(A, torch.scalar_tensor(-1)), 0) / self.n_samples
             )
         return A, C
 
@@ -742,7 +776,7 @@ class Model:
         # If not available, approximate by a large sample (M >> K) and keep the highest-prob uniques.
         # Try an exact/topk method (implement if you have it)
         eval_dict: Dict = self.eval_init(self.n_samples, 0)
-        topk_list: Tuple[Tuple[str, float]] = tuple(self.sample(0, eval_dict))
+        topk_list: Tuple[Iterable[Tuple[str, float]]] = tuple(self.sample(0, eval_dict))
         # -------------------------
         # 2) Build or reuse MC curve
         # -------------------------
@@ -765,7 +799,9 @@ class Model:
         # real_rank is strict rank: count of items with p > p(pw) within the full universe.
         # For top-K where we only have the top-K ordering, we define real_rank as its position (0-based)
         # which is consistent for comparing relative error inside top-K.
-        for idx, (pw, pval) in enumerate(topk_list):
+        for idx, (pwd, pval) in enumerate(topk_list):
+            print(f"DEBUG: (pwd,pval)= {pwd},{pval}")  # Add this line
+
             # convert pval depending on log2 mode
             if getattr(self, "log_2", False):
                 # If pval here is probability, convert to surprisal key:

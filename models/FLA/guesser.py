@@ -1,6 +1,6 @@
 import torch
 from math import ceil
-from typing import Generator, Iterable, Optional
+from typing import Generator, Iterable, Iterator, List, Optional
 from torch import Generator as TCGenerator, float64
 import torch.nn.functional as F
 import gzip
@@ -87,7 +87,7 @@ class Guesser:
         if sum_per > 0:
             preds /= sum_per  # In-place, vectorized division
 
-    def pwd_is_valid(self, pwd):
+    def pwd_is_valid(self, pwd: str | tuple[str]) -> bool:
         if isinstance(pwd, tuple):
             pwd = "".join(pwd)
         pwd = pwd.strip(self.PASSWORD_END)
@@ -470,16 +470,18 @@ class Guesser:
             log2p = step_p.log2().sum()
             return float(log2p.exp2().item())
 
-    def extract_pwd_from_node(self, node_list):
+    def extract_pwd_from_node(self, node_list) -> Iterator[str]:
         return map(lambda x: x[0], node_list)
 
-    def super_node_recur(self, node_list, file):
+    def super_node_recur(self, node_list: List[tuple[str, float]], file) -> None:
         if len(node_list) == 0:
             return
-        pwds_list = list(self.extract_pwd_from_node(node_list))
-        predictions = self.batch_prob(pwds_list)
+
+        pwds_list: List[str] = list(self.extract_pwd_from_node(node_list))
+        predictions: torch.Tensor = self.batch_prob(pwds_list)
         node_batch = []
         file_buffer = []
+
         for i, cur_node in enumerate(node_list):
             astring, prob = cur_node
             for next_node in self.next_nodes(

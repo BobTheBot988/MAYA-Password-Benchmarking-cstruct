@@ -21,8 +21,7 @@ from .fla_utils.dataloader import DataLoader
 from .guesser import Guesser
 
 
-def get_lower_probability_threshold(n_samples):
-    n_samples = int(n_samples)
+def get_lower_probability_threshold(n_samples: int):
     if n_samples <= 10**5:
         return 0.000001
     elif n_samples <= 10**6:
@@ -233,7 +232,7 @@ class FLA(Model):
         eval_dict["tempfilename"] = temp_file_name
 
         print("[I] - Returning String Generator")
-        return heapcy.string_generator(temp_file_name, offsets)
+        return heapcy.string_float_generator(temp_file_name, offsets)
 
     def guessing_strategy(self, evaluation_batch_size, eval_dict):
         pass
