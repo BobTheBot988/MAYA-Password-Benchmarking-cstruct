@@ -1,9 +1,10 @@
+from io import TextIOWrapper
 import torch
-from math import ceil
-from typing import Generator, Iterable, Iterator, List, Optional
-from torch import Generator as TCGenerator, float64
 import torch.nn.functional as F
+from torch import Tensor, Generator as TCGenerator, device, float64
+from typing import Tuple, List, Optional, Generator, Iterable
 import gzip
+from math import ceil
 
 
 class Guesser:
@@ -23,71 +24,59 @@ class Guesser:
         self.output_file = output_file
         self.device = device
 
-    def generate(self, x_data: torch.Tensor) -> torch.Tensor:
+    def generate(self, x_data: Tensor) -> Tensor:
         self.model.eval()
         with torch.no_grad():
-            output = self.model(x_data)
+            output = self.model(x_data.to(device=self.device))
             output = F.softmax(output, dim=1)
             output = output.to(dtype=torch.float64)
         return output
 
-    def encode_passwords(self, astring_list: list[str]) -> torch.Tensor:
-        # --- Inside your encode_passwords function ---
-
-        max_len = self.max_len
-        x_data_tensors = []  # A list to hold our tensors
+    def encode_passwords(self, astring_list: List[str]) -> Tensor:
+        max_len: int = self.max_len
+        x_data: List[List[str]] | Tensor = []
 
         for password in astring_list:
-            # 1. Python part (unavoidable):
-            #    Map chars to indices, truncating to max_len
-            indices = [
-                self.data.tokenizer.char_indices.get(char, 0)
-                for char in password[:max_len]
-            ]
+            current_password: List[str] = []
 
-            # 2. Convert to tensor (still on CPU is fine)
-            t = torch.tensor(indices, dtype=torch.long)
+            for char in password:
+                encoded_char = self.data.charmap[char]
+                current_password.append(encoded_char)
 
-            # 3. Vectorized padding (replaces your 'while' loop)
-            padding_len = max_len - t.shape[0]
-            if padding_len > 0:
-                # F.pad takes (left_pad, right_pad)
-                t = F.pad(t, (0, padding_len), "constant", 0)
+            while len(current_password) < max_len:
+                current_password.append(0)
 
-            x_data_tensors.append(t)
+            x_data.append(current_password)
 
-        # 4. Create the final batch tensor in one operation
-        #    This is much faster than appending lists and then converting.
-        x_data = torch.stack(x_data_tensors, dim=0).to(self.device)
-
-        # 5. Now, continue with your one-hot encoding
-        x_data = F.one_hot(x_data, self.data.tokenizer.vocab_size).to(torch.float32)
+        x_data = torch.tensor(x_data, dtype=torch.long).to(self.device)
+        x_data = (
+            F.one_hot(x_data, len(self.data.charmap)).to(self.device).to(torch.float32)
+        )
         return x_data
 
-    def relevel_prediction(self, preds: torch.Tensor, astring: tuple[str] | str):
-        """
-        Destructive function which relevels preds
-        """
+    def relevel_prediction(self, preds: Tensor, astring: Tuple[str] | str):
         if isinstance(astring, tuple):
             astring_joined_len = sum(map(len, astring))
         else:
             astring_joined_len = 0
-
         if not self.pwd_is_valid(astring):
             preds[self.data.tokenizer.char_indices[self.PASSWORD_END]] = 0
         elif len(astring) == self.max_len or (
             isinstance(astring, tuple) and astring_joined_len == self.max_len
         ):
-            multi = torch.zeros(len(preds), dtype=float64, device=self.device)
-            multi[self.pwd_end_idx] = 1
+            multiply = torch.zeros(len(preds), device=self.device)
+            multiply[self.pwd_end_idx] = 1
             preds[self.pwd_end_idx] = 1
-            preds.mul_(multi)
+            torch.multiply(preds, multiply, out=preds)
 
-        sum_per = preds.sum()
-        if sum_per > 0:
-            preds /= sum_per  # In-place, vectorized division
+        sum_per: Tensor = preds.sum()
+        # this operation is the vectorized of for loop below
+        preds = preds.div_(sum_per)
 
-    def pwd_is_valid(self, pwd: str | tuple[str]) -> bool:
+        # for i, v in enumerate(preds):
+        #    preds[i] = v / sum_per
+
+    def pwd_is_valid(self, pwd: Tuple[str] | str) -> bool:
         if isinstance(pwd, tuple):
             pwd = "".join(pwd)
         pwd = pwd.strip(self.PASSWORD_END)
@@ -98,33 +87,108 @@ class Guesser:
         )
         return answer
 
-        """  def relevel_prediction_many(self, pred_list, str_list):
-        if (self.pwd_is_valid(str_list[0]) and len(str_list[0]) != self.max_len):
-            pwd = "".join(pwd)
-        pwd = pwd.strip(self.PASSWORD_END)
-        answer = (
-            all(map(lambda c: c in self.data.char_bag, pwd))
-            and len(pwd) <= self.max_len
-            and len(pwd) >= 4
-        )
-        return answer
-        """
-
-    def relevel_prediction_many(self, pred_list: torch.Tensor, str_list: list[str]):
+    def relevel_prediction_many(self, pred_list, str_list) -> None:
+        if self.pwd_is_valid(str_list[0]) and len(str_list[0]) != self.max_len:
+            return
         for i, pred_item in enumerate(pred_list):
             self.relevel_prediction(pred_item[0], str_list[i])
 
-    def conditional_probs_many(self, astring_list: list[str]) -> torch.Tensor:
-        x_data = self.encode_passwords(astring_list)
+    def conditional_probs_many(self, astring_list) -> Tensor:
+        x_data = self.data.tokenizer.encode_many(astring_list)
+        x_data = torch.tensor(x_data, dtype=torch.float32).to(self.device)
 
-        answer: torch.Tensor = self.generate(x_data)
+        answer: Tensor = self.generate(x_data)
         if len(answer.shape) == 2:
-            answer = answer.unsqueeze(1)
+            answer = answer.unsqueeze_(dim=1)
 
         assert answer.shape == (len(astring_list), 1, self.data.tokenizer.vocab_size)
 
         self.relevel_prediction_many(answer, astring_list)
         return answer
+
+    def next_nodes(
+        self, astring: str, prob: float, prediction: Tensor, file_buffer: List[str]
+    ) -> List[Tuple[str, float]]:
+        total_preds: Tensor = prediction * prob
+        total_preds = total_preds.to(device=self.device)
+
+        max_len: int = self.max_len
+        if len(astring) + 1 > max_len:
+            prob_end: float = float(total_preds[self.pwd_end_idx].item())
+            if prob_end >= self.lower_probability_threshold:
+                file_buffer.append(f"{astring} {prob_end}\n")
+                self.n_generated_passwords += 1
+            return []
+
+        indexes: Tensor = torch.arange(len(total_preds), device=self.device)
+        above_cutoff: Tensor = total_preds >= self.lower_probability_threshold
+        above_cutoff = above_cutoff.to(device=self.device)
+
+        above_indices = indexes[above_cutoff]
+
+        probs_above = total_preds[above_cutoff]
+        answer: List[Tuple[str, float]] = []
+
+        for i, chain_prob in enumerate(probs_above):
+            char: str = self.data.tokenizer.char_list[above_indices[i]]
+            chain_prob = chain_prob.item()
+            if char == self.PASSWORD_END:
+                file_buffer.append(f"{astring} {chain_prob}\n")
+                self.n_generated_passwords += 1
+            else:
+                chain_pass = astring + char
+                answer.append((chain_pass, chain_prob))
+
+        return answer
+
+    def batch_prob(self, prefixes) -> Tensor:
+        return self.conditional_probs_many(prefixes)
+
+    def extract_pwd_from_node(self, node_list):
+        return map(lambda x: x[0], node_list)
+
+    def super_node_recur(self, node_list: List[Tuple[str, float]], file: TextIOWrapper):
+        if len(node_list) == 0:
+            return
+        pwds_list: List[str] = list(self.extract_pwd_from_node(node_list))
+        predictions: Tensor = self.batch_prob(pwds_list)
+        node_batch = []
+        file_buffer: List[str] = []
+        for i, cur_node in enumerate(node_list):
+            astring, prob = cur_node
+            for next_node in self.next_nodes(
+                astring, prob, predictions[i][0], file_buffer
+            ):
+                node_batch.append(next_node)
+                if len(node_batch) == self.chunk_size_guesser:
+                    self.super_node_recur(node_batch, file)
+                    node_batch = []
+
+            if len(file_buffer) >= 1000000:
+                file.writelines(file_buffer)
+                file_buffer.clear()
+
+        if len(file_buffer) > 0:
+            file.writelines(file_buffer)
+            file_buffer.clear()
+
+        if len(node_batch) > 0:
+            self.super_node_recur(node_batch, file)
+            node_batch: List = []
+
+    def _recur(self, file: TextIOWrapper, astring: str = "", prob: float = 1):
+        self.super_node_recur([(astring, prob)], file)
+
+    def starting_node(self, default_value):
+        return default_value
+
+    def guess(self, astring="", prob=1):
+        with gzip.open(self.output_file, "at") as file:
+            self._recur(file, self.starting_node(astring), prob)
+
+    def complete_guessing(self, start="", start_prob=1):
+        self.guess(start, start_prob)
+        return self.n_generated_passwords
 
     def choose(self, preds: torch.Tensor, rng: TCGenerator) -> int:
         idx = torch.multinomial(
@@ -266,10 +330,12 @@ class Guesser:
                     break
 
                 # Encode on right device
-                x_data = self.encode_passwords(prefixes)
+                x_data = torch.Tensor(self.data.tokenizer.encode_many(prefixes))
 
                 # --- NEXT-STEP PROBABILITIES ---
-                probs = self.generate(x_data)  # MUST be probabilities, shape [n, vocab]
+                probs = self.generate(x_data).to(
+                    device=self.device
+                )  # MUST be probabilities, shape [n, vocab]
                 # If your generate() actually returns logits, uncomment:
                 # probs = torch.softmax(probs, dim=1)
 
@@ -363,8 +429,10 @@ class Guesser:
         ch: str = ""
         idx: int = -1
         while True:
-            x_data = self.encode_passwords([prefix])  # 1. Encode the prefix
-            preds: torch.Tensor = self.generate(x_data)[0, :]
+            x_data = torch.Tensor(
+                self.data.tokenizer.encode_many([prefix]), device=self.device
+            )  # 1. Encode the prefix
+            preds: torch.Tensor = self.generate(x_data).to(device=self.device)[0, :]
             preds_for_sampling = preds.clone()
 
             # 3. Normalize the COPY (preds_for_sampling)
@@ -390,133 +458,6 @@ class Guesser:
         for _ in range(n):
             pwd, prob = self.sample_one_iid(rng)
             yield (pwd, prob)
-
-    def next_nodes(
-        self, astring: str, prob: float, prediction: torch.Tensor, file_buffer: list
-    ) -> list:
-        total_preds = prediction * prob
-        max_len = self.max_len
-        if len(astring) + 1 > max_len:
-            prob_end = total_preds[self.pwd_end_idx]
-            if prob_end >= self.lower_probability_threshold:
-                file_buffer.append(f"{astring} {prob_end.item()}\n")
-                self.n_generated_passwords += 1
-            return []
-
-        indexes = torch.arange(len(total_preds)).to(device=self.device)
-        above_cutoff = total_preds >= self.lower_probability_threshold
-        above_indices = indexes[above_cutoff]
-        probs_above = total_preds[above_cutoff]
-        answer = []
-        above_indices_cpu = above_indices.cpu()
-
-        for i, chain_prob in enumerate(probs_above):
-            char = self.data.tokenizer.char_list[above_indices_cpu[i]]
-            if char == self.PASSWORD_END:
-                file_buffer.append(f"{astring} {float(chain_prob.item())}\n")
-                self.n_generated_passwords += 1
-            else:
-                chain_pass = astring + char
-                answer.append((chain_pass, chain_prob.item()))
-        return answer
-
-    def batch_prob(self, prefixes: list[str]) -> torch.Tensor:
-        return self.conditional_probs_many(prefixes)
-
-    def password_probability(self, target: str) -> float:
-        """Probability that the model emits `target` then END, with the same mask+relevel policy as sampling."""
-        if not self.pwd_is_valid(target):
-            return 0.0
-
-        prefixes = [""] + [target[:i] for i in range(1, len(target) + 1)]
-        next_chars = list(target) + [self.PASSWORD_END]
-        char_indices = self.data.tokenizer.char_indices
-        END = (
-            self.pwd_end_idx
-            if isinstance(getattr(self, "pwd_end_idx", None), int)
-            else char_indices[self.PASSWORD_END]
-        )
-
-        # Map next chars to indices; bail to 0 prob if any char isn't in vocab
-        try:
-            idx_list = [
-                c if isinstance(c, int) else char_indices[c] for c in next_chars
-            ]
-        except KeyError:
-            return 0.0
-
-        with torch.inference_mode():
-            x = self.encode_passwords(prefixes)
-            probs = self.generate(x)  # MUST be probabilities [steps,vocab]
-            # If generate() returns logits, uncomment:
-            # probs = torch.softmax(probs, dim=1)
-
-            # Step-wise validity mask + relevel (same as sampler)
-            valid = self.valid_next_mask(prefixes, allow_all_non_end=True).to(
-                device=probs.device
-            )
-            probs = probs * valid
-            row_sums = probs.sum(dim=1, keepdim=True)
-            end_only = torch.zeros_like(probs)
-            end_only[:, END] = 1.0
-            probs = torch.where(row_sums > 0, probs / row_sums, end_only)
-
-            # Pick per-step probs and multiply in log2 space
-            rows = torch.arange(probs.size(0), device=probs.device)
-            idxs_t = torch.tensor(idx_list, dtype=torch.long, device=probs.device)
-            step_p = probs[rows, idxs_t].to(torch.float64)
-            step_p.clamp_min_(torch.finfo(step_p.dtype).tiny)
-
-            log2p = step_p.log2().sum()
-            return float(log2p.exp2().item())
-
-    def extract_pwd_from_node(self, node_list) -> Iterator[str]:
-        return map(lambda x: x[0], node_list)
-
-    def super_node_recur(self, node_list: List[tuple[str, float]], file) -> None:
-        if len(node_list) == 0:
-            return
-
-        pwds_list: List[str] = list(self.extract_pwd_from_node(node_list))
-        predictions: torch.Tensor = self.batch_prob(pwds_list)
-        node_batch = []
-        file_buffer = []
-
-        for i, cur_node in enumerate(node_list):
-            astring, prob = cur_node
-            for next_node in self.next_nodes(
-                astring, prob, predictions[i][0], file_buffer
-            ):
-                node_batch.append(next_node)
-                if len(node_batch) == self.chunk_size_guesser:
-                    self.super_node_recur(node_batch, file)
-                    node_batch = []
-
-            if len(file_buffer) >= 1_000_000:
-                file.writelines(file_buffer)
-                file_buffer.clear()
-
-        if len(file_buffer) > 0:
-            file.writelines(file_buffer)
-            file_buffer.clear()
-
-        if len(node_batch) > 0:
-            self.super_node_recur(node_batch, file)
-            node_batch = []
-
-    def _recur(self, file, astring="", prob=1):
-        self.super_node_recur([(astring, prob)], file)
-
-    def starting_node(self, default_value):
-        return default_value
-
-    def guess(self, astring="", prob=1):
-        with gzip.open(self.output_file, "at") as file:
-            self._recur(file, self.starting_node(astring), prob)
-
-    def complete_guessing(self, start="", start_prob=1):
-        self.guess(start, start_prob)
-        return self.n_generated_passwords
 
 
 def _consume(gen):

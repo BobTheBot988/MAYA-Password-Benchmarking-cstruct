@@ -1,7 +1,10 @@
 import numpy as np
 
-class Tokenizer():
-    def __init__(self, chars, maxlen, PASSWORD_END, embedding=False, padding_character=False):
+
+class Tokenizer:
+    def __init__(
+        self, chars, maxlen, PASSWORD_END, embedding=False, padding_character=False
+    ):
         self.chars = sorted(set(chars))
         self.char_indices = dict((c, i) for i, c in enumerate(self.chars))
         self.indices_char = dict((i, c) for i, c in enumerate(self.chars))
@@ -15,24 +18,30 @@ class Tokenizer():
     def pad_to_len(self, astring, maxlen=None):
         maxlen = maxlen if maxlen else self.maxlen
         if len(astring) > maxlen:
-            return astring[len(astring) - maxlen:]
+            return astring[len(astring) - maxlen :]
         if self.padding_character:
             astring = astring + (self.PASSWORD_END * (maxlen - len(astring)))
             return astring
         return astring
 
-    def encode_many(self, string_list, maxlen=None, y_vec=False):
+    def encode_many(self, string_list: list[str], maxlen=None, y_vec=False):
         maxlen = maxlen if maxlen else self.maxlen
         x_str_list = map(lambda x: self.pad_to_len(x, maxlen), string_list)
+
         if self.embedding and not y_vec:
             x_vec = np.zeros(shape=(len(string_list), maxlen), dtype=np.int8)
         else:
-            x_vec = np.zeros((len(string_list), maxlen, self.vocab_size), dtype=np.bool_)
+            x_vec = np.zeros(
+                (len(string_list), maxlen, self.vocab_size), dtype=np.bool_
+            )
         for i, xstr in enumerate(x_str_list):
             self.encode_into(x_vec[i], xstr)
+
         return x_vec
 
-    def encode_many_chunks(self, string_list, max_input_str_len, maxlen=None, y_vec=False):
+    def encode_many_chunks(
+        self, string_list, max_input_str_len, maxlen=None, y_vec=False
+    ):
         maxlen = maxlen if maxlen else self.maxlen
         chunks_str_list = []
         iters = list(range(maxlen, max_input_str_len, maxlen // 2))
@@ -40,10 +49,13 @@ class Tokenizer():
         for a_string in string_list:
             prev_iter = 0
             for i in iters:
-                if prev_iter >= len(a_string) and (len(a_string) != 0) or \
-                        (len(a_string) == 0 and prev_iter != 0):
+                if (
+                    prev_iter >= len(a_string)
+                    and (len(a_string) != 0)
+                    or (len(a_string) == 0 and prev_iter != 0)
+                ):
                     break
-                chunk = a_string[i - maxlen:i]
+                chunk = a_string[i - maxlen : i]
                 chunks_str_list.append(chunk)
                 prev_iter = i
 
@@ -60,7 +72,9 @@ class Tokenizer():
             elif len(X.shape) == 2:
                 X[i, self.char_indices[c]] = 1
             else:
-                raise Exception("Code should never reach here, dimension of X can only be 1 or 2")
+                raise Exception(
+                    "Code should never reach here, dimension of X can only be 1 or 2"
+                )
 
     def encode(self, C, maxlen=None):
         maxlen = maxlen if maxlen else self.maxlen
@@ -77,4 +91,3 @@ class Tokenizer():
 
     def translate(self, astring):
         return astring
-

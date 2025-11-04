@@ -828,7 +828,7 @@ class Model:
             abs_err = abs(r_hat - real_r)
             rel_err = abs_err / max(1.0, real_r)
 
-            rows.append((pw, float(pval), r_hat, real_r, abs_err, rel_err))
+            rows.append((pwd, float(pval), r_hat, real_r, abs_err, rel_err))
 
         # -------------------------
         # 4) Bucketed summaries
@@ -840,7 +840,7 @@ class Model:
             100_000: [],
             1_000_000: [],
         }
-        for i, (_, _p, r_hat, real_r, ae) in enumerate(rows):
+        for _, _, r_hat, real_r, ae, rel_err in rows:
             rank1 = int(real_r) + 1  # convert to 1-based for bucket tests
             for b in sorted(buckets.keys()):
                 if rank1 <= b:
@@ -862,9 +862,19 @@ class Model:
         if write_csv:
             import csv
 
+            my_str = f"mc_accuracy_top{len(topk_list)}k.csv"
+            out_dir: str = os.path.join(
+                self.settings["output_path"],
+                self.settings["test_hash"],
+                "montecalo_accuracy",
+            )
             _create_and_clean_dir(out_dir)
-            csv_path = out_dir + f"mc_accuracy_top{len(topk_list)}.csv"
-            with open(csv_path, "w", newline="") as f:
+
+            csv_path: str = os.path.join(
+                out_dir,
+                my_str,
+            )
+            with open(csv_path, "w+", newline="\n") as f:
                 w = csv.writer(f)
                 w.writerow(
                     ["pwd", "p_model", "r_hat", "r_true_pos", "abs_err", "rel_err"]
@@ -874,6 +884,10 @@ class Model:
 
         # Print small summary
         print(f"[I] - Top-K tested: {len(topk_list)}")
+
+        print("[I] - Bucket:")
+        for b in sorted(buckets.keys()):
+            __import__("pprint").pprint(f"{buckets[b]}")
         print("[I] - Bucket summary (median absolute error):")
         for b in sorted(bucket_summary.keys()):
             info = bucket_summary[b]
