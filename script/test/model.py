@@ -752,28 +752,18 @@ class Model:
     def montecarlo_test(
         self,
         write_csv: bool = True,
-    ):
+    ) -> Dict:
         """
         For the model, take the top-K (by true model prob or approximate via large sample),
         then estimate each password's rank using a single Monte-Carlo curve (A,C) and
         report errors en-masse.
 
         Args:
-            K: int - number of top passwords to evaluate (default 100k)
             write_csv: bool - whether to write per-password CSV
-            out_dir: output directory for CSVs
-
         Returns:
             summary: dict with overall and per-bucket aggregates
         """
 
-        # -------------------------
-        # 1) Obtain top-K list: list of (pwd, prob)
-        # -------------------------
-        # Prefer an exact enumeration API if your model has it:
-        #   topk = self.enumerate_topk(K)
-        # If not available, approximate by a large sample (M >> K) and keep the highest-prob uniques.
-        # Try an exact/topk method (implement if you have it)
         eval_dict: Dict = self.eval_init(self.n_samples, 0)
 
         topk_list: List[Tuple[str, float]] = list()
@@ -795,6 +785,7 @@ class Model:
                     topk_list.append((pwd, float(prob)))
                     progress_bar.update(1)
 
+            del debug_set
             self.post_sampling(eval_dict)
 
         else:
@@ -806,9 +797,6 @@ class Model:
                     pwd, prob = line.split(" ")
                     topk_list.append((pwd, float(prob)))
 
-        # -------------------------
-        # 2) Build or reuse MC curve
-        # -------------------------
         A, C = self.build_mc_curve()  # A: descending probs tensor, C aligned
         # ensure A is on CPU and numpy-friendly
         A_cpu = (
@@ -821,46 +809,31 @@ class Model:
         # We'll search using the -A trick (searchsorted expects ascending input).
         negA = (-A_cpu).contiguous()
 
-        # -------------------------
-        # 3) Iterate top-K and estimate ranks
-        # -------------------------
         rows: List[Tuple[str, float, float, float, float, float]] = []
         # real_rank is strict rank: count of items with p > p(pw) within the full universe.
         # For top-K where we only have the top-K ordering, we define real_rank as its position (0-based)
-        # which is consistent for comparing relative error inside top-K.
         for idx, (pwd, pval) in enumerate(topk_list):
             # convert pval depending on log2 mode
             if getattr(self, "log_2", False):
-                # If pval here is probability, convert to surprisal key:
-                # key = -log2(p)
                 key_val = float(-math.log2(max(pval, 1e-300)))
-                # search in -A if A stores probs descending OR if A stored p we need -A trick
-                # Our A is descending probs -> -A ascending. For surprisal-mode, we must convert to p for comparison
-                # Safer path: convert key to probability and search in -A
-                key_prob = 2 ** (-key_val)  # p value
+                key_prob = 2 ** (-key_val)
                 search_key = -torch.tensor(key_prob, dtype=negA.dtype)
             else:
-                # raw probability
                 key_prob = float(pval)
                 search_key = -torch.tensor(key_prob, dtype=negA.dtype)
 
-            # torch.searchsorted requires same device/dtype
             j = torch.searchsorted(negA, search_key, right=True).item() - 1
             if j < 0:
                 r_hat = 0.0
             else:
                 r_hat = float(C_cpu[j].item())
 
-            real_r = float(idx)  # position inside top-K (0-based)
+            real_r = float(idx)
             abs_err = abs(r_hat - real_r)
             rel_err = abs_err / max(1.0, real_r)
 
             rows.append((pwd, float(pval), r_hat, real_r, abs_err, rel_err))
 
-        # -------------------------
-        # 4) Bucketed summaries
-        # -------------------------
-        # buckets keyed by max-rank inclusive (these are illustrative)
         buckets = {
             1_000: [],
             10_000: [],
@@ -868,7 +841,7 @@ class Model:
             1_000_000: [],
         }
         for _, _, r_hat, real_r, ae, rel_err in rows:
-            rank1 = int(real_r) + 1  # convert to 1-based for bucket tests
+            rank1 = int(real_r) + 1
             for b in sorted(buckets.keys()):
                 if rank1 <= b:
                     buckets[b].append(ae)
@@ -883,9 +856,6 @@ class Model:
                 m = vals_sorted[len(vals_sorted) // 2]
                 bucket_summary[b] = {"count": len(vals), "median_abs_err": float(m)}
 
-        # -------------------------
-        # 5) Write CSV of per-password results (optional)
-        # -------------------------
         if write_csv:
             import csv
 
