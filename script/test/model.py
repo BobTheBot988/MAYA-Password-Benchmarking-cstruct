@@ -752,7 +752,6 @@ class Model:
     def montecarlo_test(
         self,
         write_csv: bool = True,
-        out_dir: str = "results/mc_accuracy",
     ):
         """
         For the model, take the top-K (by true model prob or approximate via large sample),
@@ -800,8 +799,6 @@ class Model:
         # For top-K where we only have the top-K ordering, we define real_rank as its position (0-based)
         # which is consistent for comparing relative error inside top-K.
         for idx, (pwd, pval) in enumerate(topk_list):
-            print(f"DEBUG: (pwd,pval)= {pwd},{pval}")  # Add this line
-
             # convert pval depending on log2 mode
             if getattr(self, "log_2", False):
                 # If pval here is probability, convert to surprisal key:
@@ -866,7 +863,7 @@ class Model:
             out_dir: str = os.path.join(
                 self.settings["output_path"],
                 self.settings["test_hash"],
-                "montecalo_accuracy",
+                "montecarlo_accuracy",
             )
             _create_and_clean_dir(out_dir)
 
@@ -885,9 +882,6 @@ class Model:
         # Print small summary
         print(f"[I] - Top-K tested: {len(topk_list)}")
 
-        print("[I] - Bucket:")
-        for b in sorted(buckets.keys()):
-            __import__("pprint").pprint(f"{buckets[b]}")
         print("[I] - Bucket summary (median absolute error):")
         for b in sorted(bucket_summary.keys()):
             info = bucket_summary[b]

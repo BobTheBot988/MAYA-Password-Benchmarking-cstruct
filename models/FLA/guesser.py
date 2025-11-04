@@ -1,7 +1,7 @@
 from io import TextIOWrapper
 import torch
 import torch.nn.functional as F
-from torch import Tensor, Generator as TCGenerator, device, float64
+from torch import Tensor, Generator as TCGenerator, float64
 from typing import Tuple, List, Optional, Generator, Iterable
 import gzip
 from math import ceil
@@ -75,6 +75,73 @@ class Guesser:
 
         # for i, v in enumerate(preds):
         #    preds[i] = v / sum_per
+
+    def password_probability(self, target: str) -> float:
+        """Probability that the model emits `target` then END, with the same mask+relevel policy as sampling."""
+
+        if not self.pwd_is_valid(target):
+            return 0.0
+
+        prefixes = [""] + [target[:i] for i in range(1, len(target) + 1)]
+
+        next_chars = list(target) + [self.PASSWORD_END]
+
+        char_indices = self.data.tokenizer.char_indices
+
+        END = (
+            self.pwd_end_idx
+            if isinstance(getattr(self, "pwd_end_idx", None), int)
+            else char_indices[self.PASSWORD_END]
+        )
+
+        # Map next chars to indices; bail to 0 prob if any char isn't in vocab
+
+        try:
+            idx_list = [
+                c if isinstance(c, int) else char_indices[c] for c in next_chars
+            ]
+
+        except KeyError:
+            return 0.0
+
+        with torch.inference_mode():
+            x = self.encode_passwords(prefixes)
+
+            probs = self.generate(x)  # MUST be probabilities [steps,vocab]
+
+            # If generate() returns logits, uncomment:
+
+            # probs = torch.softmax(probs, dim=1)
+
+            # Step-wise validity mask + relevel (same as sampler)
+
+            valid = self.valid_next_mask(prefixes, allow_all_non_end=True).to(
+                device=probs.device
+            )
+
+            probs = probs * valid
+
+            row_sums = probs.sum(dim=1, keepdim=True)
+
+            end_only = torch.zeros_like(probs)
+
+            end_only[:, END] = 1.0
+
+            probs = torch.where(row_sums > 0, probs / row_sums, end_only)
+
+            # Pick per-step probs and multiply in log2 space
+
+            rows = torch.arange(probs.size(0), device=probs.device)
+
+            idxs_t = torch.tensor(idx_list, dtype=torch.long, device=probs.device)
+
+            step_p = probs[rows, idxs_t].to(torch.float64)
+
+            step_p.clamp_min_(torch.finfo(step_p.dtype).tiny)
+
+            log2p = step_p.log2().sum()
+
+            return float(log2p.exp2().item())
 
     def pwd_is_valid(self, pwd: Tuple[str] | str) -> bool:
         if isinstance(pwd, tuple):
