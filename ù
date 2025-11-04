@@ -166,13 +166,12 @@ class FLA(Model):
         return temp_file_name
 
     def generate_heap(
-        self, temp_file_name: str, eval_dict: Dict[str, Model.T], n_gen: int
+        self, temp_file_name: str, eval_dict: Dict[str, Model.T]
     ) -> heapcy.Heap:
         with open(temp_file_name, "rb") as f_open:
             print(f"[I] - Size of heap will be:{eval_dict['n_samples']}")
             min_heap_n_most_prob: heapcy.Heap = heapcy.Heap(eval_dict["n_samples"])
-            progress_bar = tqdm(range(n_gen))
-            progress_bar.set_description(desc="Writing to heap")
+            progress_bar = tqdm(range(eval_dict["n_samples"]))
             while True:
                 offset: int = f_open.tell()
                 line: bytes = f_open.readline()
@@ -225,7 +224,7 @@ class FLA(Model):
         temp_file_name: str = self.temp_file_generate(eval_dict)
 
         min_heap_n_most_prob: heapcy.Heap = self.generate_heap(
-            temp_file_name, eval_dict, n_gen
+            temp_file_name, eval_dict
         )
 
         offsets: list[int] = []

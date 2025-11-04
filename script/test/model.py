@@ -7,7 +7,7 @@ import pickle
 import shutil
 import time
 from datetime import timedelta
-from typing import Any, Dict, Generator, Iterable, Literal, Optional, Tuple, List
+from typing import Any, Dict, Generator, Iterable, Literal, Optional, Set, Tuple, List
 import torch
 from torch.types import Tensor
 from tqdm import tqdm
@@ -775,7 +775,37 @@ class Model:
         # If not available, approximate by a large sample (M >> K) and keep the highest-prob uniques.
         # Try an exact/topk method (implement if you have it)
         eval_dict: Dict = self.eval_init(self.n_samples, 0)
-        topk_list: Tuple[Iterable[Tuple[str, float]]] = tuple(self.sample(0, eval_dict))
+
+        topk_list: List[Tuple[str, float]] = list()
+        topk_file_path = os.path.join(
+            self.path_to_guesses_dir, "topk_guesses_str_float.gz"
+        )
+        if not os.path.exists(topk_file_path):
+            gen: Iterable[Tuple[str, float]] = self.sample(0, eval_dict)
+            debug_set: Set[str] = set()
+
+            with gzip.open(topk_file_path, "wt") as f:
+                progress_bar = tqdm(range(self.n_samples))
+                progress_bar.set_description(desc="Writing to topk file")
+                for pwd, prob in gen:
+                    to_write = f"{pwd} {prob}\n"
+                    assert pwd not in debug_set
+                    debug_set.add(pwd)
+                    f.write(to_write)
+                    topk_list.append((pwd, float(prob)))
+                    progress_bar.update(1)
+
+            self.post_sampling(eval_dict)
+
+        else:
+            with gzip.open(topk_file_path, "rb") as f:
+                while True:
+                    line: str = f.readline().decode("ascii")
+                    if not line:
+                        break
+                    pwd, prob = line.split(" ")
+                    topk_list.append((pwd, float(prob)))
+
         # -------------------------
         # 2) Build or reuse MC curve
         # -------------------------
@@ -1020,6 +1050,8 @@ class Model:
             ) = self.sample(evaluation_batch_size, eval_dict)
             if n_batches == 1:
                 for sample in generated_passwords:
+                    if isinstance(sample, tuple):
+                        sample = sample[0]
                     assert isinstance(sample, str)
                     self.guesses.append(sample)
                     if sample in self.data.test_passwords:
