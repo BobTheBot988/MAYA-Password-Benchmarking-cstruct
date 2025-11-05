@@ -509,7 +509,7 @@ class Guesser:
         return default_value
 
     def guess(self, astring="", prob=1):
-        with gzip.open(self.output_file, "at") as file:
+        with gzip.open(self.output_file, "wt") as file:
             self._recur(file, self.starting_node(astring), prob)
 
     def complete_guessing(self, start="", start_prob=1):
