@@ -7,7 +7,7 @@ import pickle
 import shutil
 import time
 from datetime import timedelta
-from typing import Any, Dict, Generator, Iterable, Literal, Optional, Set, Tuple, List
+from typing import Any, Dict, Generator, Iterable, Literal, Optional, Tuple, List
 import torch
 from torch.types import Tensor
 from tqdm import tqdm
@@ -744,9 +744,42 @@ class Model:
                 device=self.device,
                 dtype=torch.float64,
             )
+
             C: Tensor = (
                 torch.cumsum(torch.pow(A, torch.scalar_tensor(-1)), 0) / self.n_samples
             )
+
+        def write_montecarlo_curve():
+            nonlocal A, C
+            if self.log_2:
+                last_line = ".log2"
+            else:
+                last_line = ""
+
+            my_str = f"mc_curve_{len(A)}{last_line}.csv"
+            out_dir: str = os.path.join(
+                self.settings["output_path"],
+                self.settings["test_hash"],
+                "montecarlo_accuracy",
+            )
+            _create_and_clean_dir(out_dir)
+            out_dir = "/tmp/"
+
+            csv_path: str = os.path.join(
+                out_dir,
+                my_str,
+            )
+            with open(csv_path, "w+", newline="\n") as f:
+                f.write("probability,rank_hat\n")
+                for a, c in zip(A, C):
+                    row: Tuple[float, float] = (a.item(), c.item())
+                    f.write(f"{row[0]},{row[1]}\n")
+                f.close()
+
+            assert os.path.exists(csv_path)
+            print(f"[I] Created file at {csv_path}")
+
+        write_montecarlo_curve()
         return A, C
 
     def montecarlo_test(
@@ -766,7 +799,6 @@ class Model:
 
         eval_dict: Dict = self.eval_init(self.n_samples, 0)
 
-        topk_list: Iterable[Tuple[str, float]]
         topk_file_path = os.path.join(
             self.path_to_guesses_dir, "topk_guesses_str_float.gz"
         )
@@ -799,43 +831,47 @@ class Model:
 
         A, C = self.build_mc_curve()  # A: descending probs tensor, C aligned
         # ensure A is on CPU and numpy-friendly
-        A_cpu = (
-            A.cpu() if isinstance(A, Tensor) else torch.tensor(A, dtype=torch.float64)
-        )
-        C_cpu = (
-            C.cpu() if isinstance(C, Tensor) else torch.tensor(C, dtype=torch.float64)
-        )
-        del A, C
+        # A_cpu = (
+        #     A.cpu() if isinstance(A, Tensor) else torch.tensor(A, dtype=torch.float64)
+        # )
+        # C_cpu = (
+        #     C.cpu() if isinstance(C, Tensor) else torch.tensor(C, dtype=torch.float64)
+        # )
+        # del A, C
         # We'll search using the -A trick (searchsorted expects ascending input).
-        # negA = (-A_cpu).contiguous()
+        # negA = -A.contiguous()
 
-        rows: List[Tuple[str, float, float, float, float, float]] = []
         # real_rank is strict rank: count of items with p > p(pw) within the full universe.
         # For top-K where we only have the top-K ordering, we define real_rank as its position (0-based)
-        topk_list = get_generator_from_topk_file()
-        size_of_topk: int = 1
-        for idx, (pwd, pval) in enumerate(topk_list):
-            # convert pval depending on log2 mode
-            if getattr(self, "log_2", False):
-                key_val = float(-math.log2(max(pval, 1e-300)))
-                key_prob = 2 ** (-key_val)
-                search_key = -torch.tensor(key_prob, dtype=A_cpu.dtype)
-            else:
-                key_prob = float(pval)
-                search_key = -torch.tensor(key_prob, dtype=A_cpu.dtype)
+        size_of_topk: int = 0
+        A: Tensor = A.mul_(-1).contiguous().to(device=self.device)
 
-            j = torch.searchsorted(A_cpu, search_key, right=True).item() - 1
+        def get_generator_rows() -> Iterable[
+            Tuple[str, float, float, int, float, float]
+        ]:
+            nonlocal size_of_topk
+            for idx, (pwd, pval) in enumerate(get_generator_from_topk_file()):
+                # convert pval depending on log2 mode
+                if getattr(self, "log_2", False):
+                    key_val = float(-math.log2(max(pval, 1e-300)))
+                    key_prob = 2 ** (-key_val)
 
-            if j < 0:
-                r_hat = 0.0
-            else:
-                r_hat = float(C_cpu[j].item())
+                else:
+                    key_prob = float(pval)
+                search_key = -torch.tensor(key_prob, dtype=A.dtype, device=self.device)
 
-            real_r = float(idx)
-            abs_err = abs(r_hat - real_r)
-            rel_err = abs_err / max(1.0, real_r)
-            size_of_topk += 1
-            rows.append((pwd, float(pval), r_hat, real_r, abs_err, rel_err))
+                j = torch.searchsorted(A, search_key, right=True).item() - 1
+
+                if j < 0:
+                    r_hat = 0.0
+                else:
+                    r_hat = float(C[j])
+
+                real_r = idx
+                abs_err = abs(r_hat - real_r)
+                rel_err = abs_err / max(1.0, real_r)
+                size_of_topk += 1
+                yield (pwd, pval, r_hat, real_r, abs_err, rel_err)
 
         buckets = {
             1_000: [],
@@ -843,7 +879,7 @@ class Model:
             100_000: [],
             1_000_000: [],
         }
-        for _, _, r_hat, real_r, ae, rel_err in rows:
+        for _, _, r_hat, real_r, ae, rel_err in get_generator_rows():
             rank1 = int(real_r) + 1
             for b in sorted(buckets.keys()):
                 if rank1 <= b:
@@ -879,7 +915,7 @@ class Model:
                 w.writerow(
                     ["pwd", "p_model", "r_hat", "r_true_pos", "abs_err", "rel_err"]
                 )
-                for row in rows:
+                for row in get_generator_rows():
                     w.writerow(row)
 
         # Print small summary
@@ -892,7 +928,7 @@ class Model:
                 f"   <= {b:>8}: count={info['count']:>6}  median_abs_err={info['median_abs_err']}"
             )
 
-        return {"rows": rows, "buckets": bucket_summary}
+        return {"rows": [get_generator_rows()], "buckets": bucket_summary}
 
     @method_decorator
     def _run_embedding(self) -> bool:

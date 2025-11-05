@@ -1,5 +1,6 @@
 import argparse
 
+from datetime import datetime
 from script.test.tester import Tester
 from script.config.config import args_to_dict, build_args_settings
 
@@ -146,7 +147,8 @@ def parse_args():
 
 
 def main():
-    print("Starting...")
+    unix_timestamp = (datetime.now() - datetime(1970, 1, 1)).total_seconds()
+    print(f"Starting at:{unix_timestamp} unix_time...")
 
     args: argparse.Namespace = parse_args()
     args_settings: dict[str, dict] = build_args_settings(args_to_dict(args))
