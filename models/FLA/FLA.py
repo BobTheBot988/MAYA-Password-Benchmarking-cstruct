@@ -22,7 +22,7 @@ from .guesser import Guesser
 
 
 def get_lower_probability_threshold(n_samples: int):
-    if n_samples <= 10**5:
+    if n_samples <= 10**3:
         return 0.000001
     elif n_samples <= 10**6:
         return 0.00000001

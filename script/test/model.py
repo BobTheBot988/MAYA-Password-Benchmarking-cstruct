@@ -766,36 +766,36 @@ class Model:
 
         eval_dict: Dict = self.eval_init(self.n_samples, 0)
 
-        topk_list: List[Tuple[str, float]] = list()
+        topk_list: Iterable[Tuple[str, float]]
         topk_file_path = os.path.join(
             self.path_to_guesses_dir, "topk_guesses_str_float.gz"
         )
+
         if not os.path.exists(topk_file_path):
             gen: Iterable[Tuple[str, float]] = self.sample(0, eval_dict)
-            debug_set: Set[str] = set()
+            assert not isinstance(gen, List)
 
             with gzip.open(topk_file_path, "wt") as f:
                 progress_bar = tqdm(range(self.n_samples))
                 progress_bar.set_description(desc="Writing to topk file")
-                for pwd, prob in gen:
+                check: int = 0
+                for i, (pwd, prob) in enumerate(gen):
                     to_write = f"{pwd} {prob}\n"
-                    assert pwd not in debug_set
-                    debug_set.add(pwd)
                     f.write(to_write)
-                    topk_list.append((pwd, float(prob)))
                     progress_bar.update(1)
-
-            del debug_set
+                    check = i
+                assert check == self.n_samples
             self.post_sampling(eval_dict)
 
-        else:
+        def get_generator_from_topk_file() -> Iterable[Tuple[str, float]]:
+            nonlocal topk_file_path
             with gzip.open(topk_file_path, "rb") as f:
                 while True:
                     line: str = f.readline().decode("ascii")
                     if not line:
                         break
                     pwd, prob = line.split(" ")
-                    topk_list.append((pwd, float(prob)))
+                    yield (pwd, float(prob))
 
         A, C = self.build_mc_curve()  # A: descending probs tensor, C aligned
         # ensure A is on CPU and numpy-friendly
@@ -805,24 +805,27 @@ class Model:
         C_cpu = (
             C.cpu() if isinstance(C, Tensor) else torch.tensor(C, dtype=torch.float64)
         )
-
+        del A, C
         # We'll search using the -A trick (searchsorted expects ascending input).
-        negA = (-A_cpu).contiguous()
+        # negA = (-A_cpu).contiguous()
 
         rows: List[Tuple[str, float, float, float, float, float]] = []
         # real_rank is strict rank: count of items with p > p(pw) within the full universe.
         # For top-K where we only have the top-K ordering, we define real_rank as its position (0-based)
+        topk_list = get_generator_from_topk_file()
+        size_of_topk: int = 1
         for idx, (pwd, pval) in enumerate(topk_list):
             # convert pval depending on log2 mode
             if getattr(self, "log_2", False):
                 key_val = float(-math.log2(max(pval, 1e-300)))
                 key_prob = 2 ** (-key_val)
-                search_key = -torch.tensor(key_prob, dtype=negA.dtype)
+                search_key = -torch.tensor(key_prob, dtype=A_cpu.dtype)
             else:
                 key_prob = float(pval)
-                search_key = -torch.tensor(key_prob, dtype=negA.dtype)
+                search_key = -torch.tensor(key_prob, dtype=A_cpu.dtype)
 
-            j = torch.searchsorted(negA, search_key, right=True).item() - 1
+            j = torch.searchsorted(A_cpu, search_key, right=True).item() - 1
+
             if j < 0:
                 r_hat = 0.0
             else:
@@ -831,7 +834,7 @@ class Model:
             real_r = float(idx)
             abs_err = abs(r_hat - real_r)
             rel_err = abs_err / max(1.0, real_r)
-
+            size_of_topk += 1
             rows.append((pwd, float(pval), r_hat, real_r, abs_err, rel_err))
 
         buckets = {
@@ -859,7 +862,7 @@ class Model:
         if write_csv:
             import csv
 
-            my_str = f"mc_accuracy_top{len(topk_list)}k.csv"
+            my_str = f"mc_accuracy_top{size_of_topk}k.csv"
             out_dir: str = os.path.join(
                 self.settings["output_path"],
                 self.settings["test_hash"],
@@ -880,7 +883,7 @@ class Model:
                     w.writerow(row)
 
         # Print small summary
-        print(f"[I] - Top-K tested: {len(topk_list)}")
+        print(f"[I] - Top-K tested: {size_of_topk}")
 
         print("[I] - Bucket summary (median absolute error):")
         for b in sorted(bucket_summary.keys()):
