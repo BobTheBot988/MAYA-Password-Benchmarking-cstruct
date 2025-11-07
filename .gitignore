@@ -4,6 +4,7 @@
 */*/*/*/__pycache__
 
 venv
+.venv
 .idea/*
 datasets/datasets/en/gaming/rockyou.pickle
 datasets/*/*/*.pickle
