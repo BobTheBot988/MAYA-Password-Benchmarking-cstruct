@@ -196,8 +196,8 @@ class Model:
         eval_start = time.time()
 
         # self.get_string_probability_from("bestfriend")
-        self.montecarlo_test()
-
+        # self.montecarlo_test()
+        self.montecarlo_test_slow()
         eval_end = time.time()
         time_delta = timedelta(seconds=eval_end - eval_start)
         print(f"[T] - Montecarlo Test completed after: {time_delta}")
@@ -380,7 +380,7 @@ class Model:
 
         # C is first populated by for i in range(len(A))  C[i] = 1/A[i]
         C: torch.Tensor = torch.asarray(1 / A)
-
+        C = C.sort().values
         # C is then updated with for i in range(1,len(A))  C[i] = C[i-1]+ 1/A[i]
         C = torch.cumsum(input=C, dim=0, dtype=torch.float64)
 
@@ -402,10 +402,8 @@ class Model:
         C_torch_path = os.path.join(self.path_to_guesses_dir, "C.pt")
         mc_path = os.path.join(self.path_to_guesses_dir, "mc_samples.gz")
         # checking if montecarlo was done at least once
-        if (
-            True
-            or not os.path.exists(mc_path)
-            and not (os.path.exists(A_torch_path) and os.path.exists(C_torch_path))
+        if not os.path.exists(mc_path) and not (
+            os.path.exists(A_torch_path) and os.path.exists(C_torch_path)
         ):
             # sampling
             self.montecarlo_sampling(mc_path, eval_dict=eval_dict)
@@ -426,8 +424,7 @@ class Model:
             A, C = self._read_from_mc_file(mc_path)
             torch.save(A, A_torch_path)
             torch.save(C, C_torch_path)
-        # multiply by -1 so that we can use the torch.searchsorted function properly
-        A = A.mul_(-1)
+
         return A, C
 
     def montecarlo_sampling_string_only(self):
@@ -438,10 +435,6 @@ class Model:
 
     def montecarlo_test_slow(self):
         eval_dict = self.eval_init(self.n_samples, 0)
-        topk_file_path = os.path.join(
-            self.path_to_guesses_dir, "topk_guesses_str_float.gz"
-        )
-
         topk_file_path = os.path.join(
             self.path_to_guesses_dir, "topk_guesses_str_float.gz"
         )
@@ -468,20 +461,28 @@ class Model:
         topk_gen: Iterable[Tuple[str, torch.Tensor]] = get_generator_from_topk_file(
             topk_file_path, self.device
         )
-        THETA: List[str] = self.montecarlo_sampling_string_only()
-        A: torch.Tensor = torch.tensor(
-            [self.get_string_probability_from(s) for s in THETA],
-            dtype=torch.float64,
-            device=self.device,
-        )
-        for real_rank, (target_pwd, target) in enumerate(topk_gen):
-            rank_hat: float = 0.0
+        # THETA: List[str] = self.montecarlo_sampling_string_only()
+        # A: torch.Tensor = torch.tensor(
+        #    [self.get_string_probability_from(s) for s in THETA],
+        #    dtype=torch.float64,
+        #    device=self.device,
+        # )
+        A, _ = self._build_mc_curve(eval_dict)
 
-            for prob in A:
-                rank_hat += (1.0 / prob.item()) if prob > target else 0.0
-            rank_hat /= float(A.numel())
+        mc_result_path = f"/tmp/mc_results_{self.n_samples}.csv"
+        with open(mc_result_path, "wt") as f:
+            w = csv.writer(f)
+            w.writerow(["pwd", "real_rank", "rank_hat", "prob"])
+            for real_rank, (target_pwd, target) in enumerate(topk_gen):
+                rank_hat: torch.Tensor = torch.scalar_tensor(0.0)
+                condition = A > target
+                tmp: torch.Tensor = 1 / A[condition]
 
-            print(f"pwd,real_rank,rank_hat\n{target_pwd},{real_rank},{rank_hat}")
+                rank_hat = tmp.sum()
+
+                rank_hat /= float(A.numel())
+
+                w.writerow((target_pwd, real_rank, rank_hat))
 
     def montecarlo_test(self):
         eval_dict = self.eval_init(self.n_samples, 0)
@@ -513,6 +514,8 @@ class Model:
         mc_result_path = f"/tmp/mc_results_{self.n_samples}.csv"
         A, C = self._build_mc_curve(eval_dict)
 
+        # multiply by -1 so that we can use the torch.searchsorted function properly
+        A = A.mul_(-1)
         topk_gen: Iterable[Tuple[str, torch.Tensor]] = get_generator_from_topk_file(
             topk_file_path, self.device
         )

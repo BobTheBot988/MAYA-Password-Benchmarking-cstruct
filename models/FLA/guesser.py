@@ -1,8 +1,7 @@
 import csv
 import numpy
-from numpy.typing import NDArray
 import torch
-import numpy as np
+from torch import Tensor, device, float64
 import torch.nn.functional as F
 import gzip
 import math
@@ -26,7 +25,7 @@ class Guesser:
         self.output_file = output_file
         self.device = device
 
-    def generate(self, x_data, log=False):
+    def generate(self, x_data: Tensor, log=False) -> Tensor:
         self.model.eval()
         with torch.no_grad():
             output = self.model(x_data)
@@ -35,31 +34,31 @@ class Guesser:
             else:
                 output = F.log_softmax(output, dim=1)
 
-            output = np.array(output.to("cpu"), dtype=numpy.float64)
+            output = output.to(dtype=float64)
         return output
 
-    # TODO ASK why this exists if we don't even use it
-    def encode_passwords(self, astring_list):
-        max_len = self.max_len
-        x_data = []
-
-        for password in astring_list:
-            current_password = []
-
-            for char in password:
-                encoded_char = self.data.charmap[char]
-                current_password.append(encoded_char)
-
-            while len(current_password) < max_len:
-                current_password.append(0)
-
-            x_data.append(current_password)
-
-        x_data = torch.tensor(np.array(x_data), dtype=torch.long).to(self.device)
-        x_data = (
-            F.one_hot(x_data, self.data.charmap_size).to(self.device).to(torch.float32)
-        )
-        return x_data
+    #    # TODO ASK why this exists if we don't even use it
+    #    def encode_passwords(self, astring_list):
+    #        max_len = self.max_len
+    #        x_data = []
+    #
+    #        for password in astring_list:
+    #            current_password = []
+    #
+    #            for char in password:
+    #                encoded_char = self.data.charmap[char]
+    #                current_password.append(encoded_char)
+    #
+    #            while len(current_password) < max_len:
+    #                current_password.append(0)
+    #
+    #            x_data.append(current_password)
+    #
+    #        x_data = torch.tensor(np.array(x_data), dtype=torch.long).to(self.device)
+    #        x_data = (
+    #            F.one_hot(x_data, self.data.charmap_size).to(self.device).to(torch.float32)
+    #        )
+    #        return x_data
 
     def relevel_prediction(self, preds, astring):
         if isinstance(astring, tuple):
@@ -71,14 +70,17 @@ class Guesser:
         elif len(astring) == self.max_len or (
             isinstance(astring, tuple) and astring_joined_len == self.max_len
         ):
-            multiply = np.zeros(len(preds))
+            multiply = torch.zeros_like(preds)
             multiply[self.pwd_end_idx] = 1
             preds[self.pwd_end_idx] = 1
-            preds = np.multiply(preds, multiply, preds)
+            preds = preds.mul_(multiply)
 
         sum_per = sum(preds)
-        for i, v in enumerate(preds):
-            preds[i] = v / sum_per
+        preds /= sum_per
+        sum_per = preds.sum()
+        assert 0.9999 <= sum_per <= 1.0001, (
+            f"The sum should be 1.0 actual sum:{sum_per}"
+        )
 
     def pwd_is_valid(self, pwd):
         if isinstance(pwd, tuple):
@@ -110,14 +112,14 @@ class Guesser:
 
         if not self.pwd_is_valid(astring):
             # Make it impossible to end the password
-            preds[self.data.tokenizer.char_indices[self.PASSWORD_END]] = -np.inf
+            preds[self.data.tokenizer.char_indices[self.PASSWORD_END]] = -torch.inf
 
         elif len(astring) == self.max_len or (
             isinstance(astring, tuple) and astring_joined_len == self.max_len
         ):
             # We MUST end the password now.
             # Set all log-probs to -inf (Prob = 0)
-            preds[:] = -np.inf
+            preds[:] = -torch.inf
             # Set the END token log-prob to 0.0 (Prob = 1)
             preds[self.pwd_end_idx] = 0.0
 
@@ -144,15 +146,12 @@ class Guesser:
         prob_dists_batch = self.conditional_probs_many(prefixes, log=True)
 
         # Squeeze out the middle dimension (1) to get (batch_size, vocab_size)
-        # Assuming the tensor is on the GPU, move it to CPU and convert to numpy
-        try:
-            prob_dists_batch = prob_dists_batch.squeeze(axis=1)
-        except AttributeError:
-            # It's already a numpy array
-            prob_dists_batch = np.squeeze(prob_dists_batch, axis=1)
+        prob_dists_batch = prob_dists_batch.squeeze(dim=1).to(device=self.device)
 
         # total_probability = 1.0
-        total_log_probability = 0.0
+        total_log_probability = torch.scalar_tensor(
+            0.0, dtype=float64, device=self.device
+        )
 
         # 4. Loop through each step, find the probability, and multiply
         for i, target_char in enumerate(targets):
@@ -174,20 +173,20 @@ class Guesser:
             # 5. Multiply it into our total
             # total_probability *= prob_of_char
             total_log_probability += log_prob_of_char
-        total_probability = np.exp(total_log_probability)
+        total_probability = torch.exp(total_log_probability)
 
         assert 0.0 < total_probability < 1.0, (
             f"The probability is wrong:{total_probability}"
         )
-        return total_probability
+        return total_probability.item()
 
     def conditional_probs_many(self, astring_list, log=False):
         x_data = self.data.tokenizer.encode_many(astring_list)
-        x_data = torch.tensor(np.array(x_data), dtype=torch.float32).to(self.device)
+        x_data = torch.tensor(x_data, dtype=torch.float32).to(self.device)
 
         answer = self.generate(x_data, log=log)
         if len(answer.shape) == 2:
-            answer = np.expand_dims(answer, axis=1)
+            answer.unsqueeze_(dim=1)
 
         assert answer.shape == (len(astring_list), 1, self.data.tokenizer.vocab_size)
         if not log:
@@ -206,7 +205,7 @@ class Guesser:
                 self.n_generated_passwords += 1
             return []
 
-        indexes = np.arange(len(total_preds))
+        indexes = torch.arange(len(total_preds), device=self.device)
         above_cutoff = total_preds >= self.lower_probability_threshold
         above_indices = indexes[above_cutoff]
         probs_above = total_preds[above_cutoff]

@@ -21,6 +21,8 @@ def get_lower_probability_threshold(n_samples):
     n_samples = int(n_samples)
     if n_samples <= 10**3:
         return 0.000001
+    elif n_samples <= 10**4:
+        return 0.0000001
     elif n_samples <= 10**6:
         return 0.00000001
     elif n_samples <= 10**7:
