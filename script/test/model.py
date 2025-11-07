@@ -16,6 +16,7 @@ from script.utils.file_operations import redirect_stdout, redirect_stderr, write
 from script.utils.fast_eval import check_skip_generation, sub_sample, fast_eval
 from script.utils.memory_watcher import MemoryWatcher
 from script.config.config import read_config
+import gpu_selector
 
 
 def method_decorator(func: FunctionType):
@@ -118,7 +119,8 @@ class Model:
         print("-" * 40)
 
     def _setup_device(self):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #       self.device =  torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = gpu_selector.get_device()
         print(f"Selected device: {self.device}.")
 
     def _setup_checkpoint(self):
@@ -196,8 +198,8 @@ class Model:
         eval_start = time.time()
 
         # self.get_string_probability_from("bestfriend")
-        # self.montecarlo_test()
-        self.montecarlo_test_slow()
+        self.montecarlo_test()
+        # self.montecarlo_test_slow()
         eval_end = time.time()
         time_delta = timedelta(seconds=eval_end - eval_start)
         print(f"[T] - Montecarlo Test completed after: {time_delta}")
@@ -490,6 +492,8 @@ class Model:
         topk_file_path = os.path.join(
             self.path_to_guesses_dir, "topk_guesses_str_float.gz"
         )
+        if not os.path.exists(self.path_to_guesses_dir):
+            _create_and_clean_dir(self.path_to_guesses_dir)
 
         if not os.path.exists(topk_file_path):
             gen: Generator[Tuple[str, float], None, None] | Any = self.sample(
