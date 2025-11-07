@@ -1,0 +1,13 @@
+model,train-dataset,test-settings,test-hash,test-size,n_samples,matches,match_percentage
+omen,mailru,all-12-taobao-100-80,NONE,NONE,500000000,699594,12.29%
+omen,rockyou,all-12-mailru-100-80,NONE,NONE,500000000,395527,19.43%
+omen,rockyou,all-12-taobao-100-80,NONE,NONE,500000000,926752,16.28%
+omen,taobao,all-12-mailru-100-80,NONE,NONE,500000000,226061,11.11%
+omen,mailru,all-12-rockyou-100-80,NONE,NONE,500000000,2112571,15.89%
+omen,taobao,all-12-rockyou-100-80,NONE,NONE,500000000,1336218,10.05%
+pcfg,taobao,all-12-rockyou-100-80,NONE,NONE,500000000,1558078,11.72%
+pcfg,rockyou,all-12-mailru-100-80,NONE,NONE,500000000,473187,23.25%
+pcfg,mailru,all-12-rockyou-100-80,NONE,NONE,500000000,1937229,14.57%
+pcfg,taobao,all-12-mailru-100-80,NONE,NONE,500000000,216481,10.64%
+pcfg,mailru,all-12-taobao-100-80,NONE,NONE,500000000,362930,6.37%
+pcfg,rockyou,all-12-taobao-100-80,NONE,NONE,500000000,543380,9.54%

@@ -1,0 +1,28 @@
+[project]
+name = "maya-password-benchmarking"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+  "accelerate>=1.11.0",
+  "argparse>=1.4.0",
+  "datasets>=4.4.1",
+  "gdown>=5.2.0",
+  "heapcy>=0.2.1",
+  "matplotlib>=3.10.7",
+  "numpy>=2.3.4",
+  "numpy-ringbuffer>=0.2.2",
+  "py7zr>=1.0.0",
+  "pyyaml>=6.0.3",
+  "pyzstd>=0.18.0",
+  "rarfile>=4.2",
+  "scikit-learn>=1.7.2",
+  "scipy>=1.16.3",
+  "seaborn>=0.13.2",
+  "torch>=2.9.0",
+  "torchaudio>=2.9.0",
+  "torchvision>=0.24.0",
+  "tqdm>=4.67.1",
+  "transformers>=4.57.1",
+]
