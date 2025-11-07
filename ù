@@ -1,6 +1,5 @@
 import csv
 import numpy
-from numpy.typing import NDArray
 import torch
 import numpy as np
 import torch.nn.functional as F
@@ -26,17 +25,15 @@ class Guesser:
         self.output_file = output_file
         self.device = device
 
-    def generate(self, x_data, log=False):
+    def generate(self, x_data):
         self.model.eval()
         with torch.no_grad():
             output = self.model(x_data)
-            if not log:
-                output = F.softmax(output, dim=1)
-            else:
-                output = F.log_softmax(output, dim=1)
-
+            output = F.softmax(output, dim=1)
             output = np.array(output.to("cpu"), dtype=numpy.float64)
         return output
+
+    def extract_probability_for_pwd(self, pwd: str) -> float:
 
     # TODO ASK why this exists if we don't even use it
     def encode_passwords(self, astring_list):
@@ -97,103 +94,17 @@ class Guesser:
         for i, pred_item in enumerate(pred_list):
             self.relevel_prediction(pred_item[0], str_list[i])
 
-    def relevel_prediction_many_log(self, pred_list, str_list):
-        for i, pred_item in enumerate(pred_list):
-            # pred_item[0] is the log-prob distribution for the i-th string
-            self.relevel_prediction_log(pred_item[0], str_list[i])
-
-    def relevel_prediction_log(self, preds, astring):
-        if isinstance(astring, tuple):
-            astring_joined_len = sum(map(len, astring))
-        else:
-            astring_joined_len = 0
-
-        if not self.pwd_is_valid(astring):
-            # Make it impossible to end the password
-            preds[self.data.tokenizer.char_indices[self.PASSWORD_END]] = -np.inf
-
-        elif len(astring) == self.max_len or (
-            isinstance(astring, tuple) and astring_joined_len == self.max_len
-        ):
-            # We MUST end the password now.
-            # Set all log-probs to -inf (Prob = 0)
-            preds[:] = -np.inf
-            # Set the END token log-prob to 0.0 (Prob = 1)
-            preds[self.pwd_end_idx] = 0.0
-
-    def extract_probability_for_pwd(self, pwd: str) -> float:
-        """
-        Calculates the full probability of a single password string
-        using the chain rule: P(c1, c2, ..., cn) = P(c1) * P(c2|c1) * ...
-        """
-        tokenizer = self.data.tokenizer
-        end_token = tokenizer.PASSWORD_END
-
-        # 1. Create the list of all prefixes (the inputs)
-        # For "be", this will be ["", "b", "be"]
-        prefixes = [pwd[:i] for i in range(len(pwd) + 1)]
-
-        # 2. Create the list of all target characters (the outputs)
-        # For "be", this will be ['b', 'e', END_TOKEN]
-        targets = list(pwd) + [end_token]
-
-        # 3. Get all conditional probabilities in one batch
-        # This calls encode_many(prefixes), which is what we want.
-        # The model will predict P(next_char | prefix) for each prefix.
-        # Shape of prob_dists_batch should be (len(prefixes), 1, vocab_size)
-        prob_dists_batch = self.conditional_probs_many(prefixes, log=True)
-
-        # Squeeze out the middle dimension (1) to get (batch_size, vocab_size)
-        # Assuming the tensor is on the GPU, move it to CPU and convert to numpy
-        try:
-            prob_dists_batch = prob_dists_batch.squeeze(axis=1)
-        except AttributeError:
-            # It's already a numpy array
-            prob_dists_batch = np.squeeze(prob_dists_batch, axis=1)
-
-        # total_probability = 1.0
-        total_log_probability = 0.0
-
-        # 4. Loop through each step, find the probability, and multiply
-        for i, target_char in enumerate(targets):
-            # Get the full probability distribution for this step
-            # P( . | prefixes[i] )
-            dist = prob_dists_batch[i]
-
-            # Get the index of the character we *actually* observed
-            try:
-                target_index = tokenizer.get_char_index(target_char)
-            except KeyError:
-                print(f"Error: Character '{target_char}' not in tokenizer vocabulary.")
-                return 0.0  # This string is impossible according to the model
-
-            # Get the specific probability of that target character
-            # prob_of_char = dist[target_index]
-            log_prob_of_char = dist[target_index]
-
-            # 5. Multiply it into our total
-            # total_probability *= prob_of_char
-            total_log_probability += log_prob_of_char
-        total_probability = np.exp(total_log_probability)
-
-        assert 0.0 < total_probability < 1.0, (
-            f"The probability is wrong:{total_probability}"
-        )
-        return total_probability
-
-    def conditional_probs_many(self, astring_list, log=False):
+    def conditional_probs_many(self, astring_list):
         x_data = self.data.tokenizer.encode_many(astring_list)
         x_data = torch.tensor(np.array(x_data), dtype=torch.float32).to(self.device)
 
-        answer = self.generate(x_data, log=log)
+        answer = self.generate(x_data)
         if len(answer.shape) == 2:
             answer = np.expand_dims(answer, axis=1)
 
         assert answer.shape == (len(astring_list), 1, self.data.tokenizer.vocab_size)
-        if not log:
-            self.relevel_prediction_many(answer, astring_list)
-        else:
-            self.relevel_prediction_many_log(answer, astring_list)
+
+        self.relevel_prediction_many(answer, astring_list)
         return answer
 
     def next_nodes(self, astring, prob, prediction, file_buffer):
@@ -349,6 +260,7 @@ class Guesser:
                 # Allowed next tokens for each row (True/1 = allowed, False/0 = banned)
                 #
                 #
+                print(f"[I] - probs at start:{probs}")
                 row_sums = probs.sum(dim=1)
 
                 ones = torch.ones_like(row_sums)
@@ -361,13 +273,14 @@ class Guesser:
                     device=probs.device
                 )
                 probs = probs * valid  # zero out disallowed tokens
+                print(f"[I] - probs after valid:{probs}")
 
                 # Renormalize per row; if a row has no mass, fall back to END-only
                 row_sums = probs.sum(dim=1, keepdim=True)
-
-                for i in range(len(probs)):
-                    probs[i] /= row_sums[i]
-                # 1. Get the row sums. This is a vector of shape [k].
+                end_only = torch.zeros_like(probs)
+                end_only[:, END] = 1.0
+                probs = torch.where(row_sums > 0, probs / row_sums, end_only)
+                # 1. Get the row sums. This is a vector of shape [1000].
                 row_sums = probs.sum(dim=1)
 
                 # 2. Create a reference vector of all ones.
@@ -390,9 +303,9 @@ class Guesser:
 
                 # --- SAMPLE + ACCUMULATE LOGN PROB ---
                 dist = torch.distributions.Categorical(probs=probs)
-                next_idx: torch.Tensor = dist.sample()  # [n]
+                next_idx = dist.sample()  # [n]
                 # accumulate only for unfinished rows (finished rows add 0 anyway, but keep it clear)
-                lp: torch.Tensor = dist.log_prob(next_idx)  # [n]
+                lp = dist.log_prob(next_idx)
                 logprob[~is_finished] += lp[~is_finished]
                 # p = dist.log_prob(next_idx).exp_()
                 # prob[~is_finished] *= p[~is_finished]

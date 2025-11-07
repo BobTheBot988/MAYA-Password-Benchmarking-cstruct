@@ -53,7 +53,6 @@ class Model:
         self._setup_checkpoint()
 
         status = self._run_embedding()
-
         self._run_configured_task(status)
 
     def _parse_settings(self):
@@ -196,6 +195,7 @@ class Model:
         self.memory_watcher.start()
         eval_start = time.time()
 
+        # self.get_string_probability_from("bestfriend")
         self.montecarlo_test()
 
         eval_end = time.time()
@@ -402,8 +402,10 @@ class Model:
         C_torch_path = os.path.join(self.path_to_guesses_dir, "C.pt")
         mc_path = os.path.join(self.path_to_guesses_dir, "mc_samples.gz")
         # checking if montecarlo was done at least once
-        if not os.path.exists(mc_path) and not (
-            os.path.exists(A_torch_path) and os.path.exists(C_torch_path)
+        if (
+            True
+            or not os.path.exists(mc_path)
+            and not (os.path.exists(A_torch_path) and os.path.exists(C_torch_path))
         ):
             # sampling
             self.montecarlo_sampling(mc_path, eval_dict=eval_dict)
@@ -428,15 +430,61 @@ class Model:
         A = A.mul_(-1)
         return A, C
 
-    def montecarlo_test(self):
+    def montecarlo_sampling_string_only(self):
+        raise NotImplementedError()
+
+    def get_string_probability_from(self, target_str: str) -> float:
+        raise NotImplementedError()
+
+    def montecarlo_test_slow(self):
         eval_dict = self.eval_init(self.n_samples, 0)
+        topk_file_path = os.path.join(
+            self.path_to_guesses_dir, "topk_guesses_str_float.gz"
+        )
 
         topk_file_path = os.path.join(
             self.path_to_guesses_dir, "topk_guesses_str_float.gz"
         )
+
+        if not os.path.exists(topk_file_path):
+            gen: Generator[Tuple[str, float], None, None] | Any = self.sample(
+                0, eval_dict
+            )
+            assert not isinstance(gen, List)
+
+            with gzip.open(topk_file_path, "wt") as f:
+                progress_bar = tqdm(range(self.n_samples))
+                progress_bar.set_description(desc="Writing to topk file")
+                check: int = 0
+                for i, (pwd, prob) in enumerate(gen):
+                    to_write = f"{pwd} {prob}\n"
+                    f.write(to_write)
+                    progress_bar.update(1)
+                    check = i
+                assert check + 1 == self.n_samples, (
+                    f"Check is != from n_samples:\n{check}:{self.n_samples}"
+                )
+            self.post_sampling(eval_dict)
         topk_gen: Iterable[Tuple[str, torch.Tensor]] = get_generator_from_topk_file(
             topk_file_path, self.device
         )
+        THETA: List[str] = self.montecarlo_sampling_string_only()
+        A: torch.Tensor = torch.tensor(
+            [self.get_string_probability_from(s) for s in THETA],
+            dtype=torch.float64,
+            device=self.device,
+        )
+        for real_rank, (target_pwd, target) in enumerate(topk_gen):
+            rank_hat: float = 0.0
+
+            for prob in A:
+                rank_hat += (1.0 / prob.item()) if prob > target else 0.0
+            rank_hat /= float(A.numel())
+
+            print(f"pwd,real_rank,rank_hat\n{target_pwd},{real_rank},{rank_hat}")
+
+    def montecarlo_test(self):
+        eval_dict = self.eval_init(self.n_samples, 0)
 
         topk_file_path = os.path.join(
             self.path_to_guesses_dir, "topk_guesses_str_float.gz"
@@ -464,6 +512,10 @@ class Model:
 
         mc_result_path = f"/tmp/mc_results_{self.n_samples}.csv"
         A, C = self._build_mc_curve(eval_dict)
+
+        topk_gen: Iterable[Tuple[str, torch.Tensor]] = get_generator_from_topk_file(
+            topk_file_path, self.device
+        )
 
         with open(mc_result_path, "wt") as f:
             w = csv.writer(f)

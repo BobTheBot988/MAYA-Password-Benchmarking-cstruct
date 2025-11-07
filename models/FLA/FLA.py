@@ -217,4 +217,7 @@ class FLA(Model):
         gc.collect()
         os.remove(eval_dict["output_file"])
         os.remove(eval_dict["tempfilename"])
-        pass
+
+    def get_string_probability_from(self, target_str: str) -> float:
+        guess: Guesser = self.guesser_build(self.eval_init(0, 0))
+        return guess.extract_probability_for_pwd(target_str)
