@@ -1,7 +1,6 @@
 import csv
-import numpy
 import torch
-from torch import Tensor, device, float64
+from torch import Tensor, float64
 import torch.nn.functional as F
 import gzip
 import math
