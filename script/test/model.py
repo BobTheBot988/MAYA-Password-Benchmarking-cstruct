@@ -2,6 +2,7 @@ import csv
 import math
 import os
 import gzip
+import tempfile
 import time
 import pickle
 from types import FunctionType
@@ -221,9 +222,9 @@ class Model:
             List[Tuple[str, torch.Tensor]]
             | Generator[Tuple[str, torch.Tensor], None, None]
         ) = (
-            (get_generator_from_topk_file(topk_file_path, self.device))
+            get_generator_from_topk_file(topk_file_path, self.device)
             if False
-            else self.dataset_pwd_generator()
+            else self.get_generator_dataset()
         )
         self.memory_watcher.reset()
         self.memory_watcher.start()
@@ -593,25 +594,87 @@ class Model:
         """
         raise NotImplementedError("This method should be implemented in the subclass.")
 
-    def dataset_pwd_generator(
+    def get_generator_dataset(self) -> Generator[Tuple[str, torch.Tensor], None, None]:
+        dataset_with_probs = os.path.join(
+            self.path_to_guesses_dir, "test_dataset.csv.gz"
+        )
+        # Create the cache file
+        if not os.path.exists(dataset_with_probs):
+            gen = self.dataset_pwd_prob()
+            with gzip.open(dataset_with_probs, "wt", compresslevel=3) as f:
+                w = csv.writer(f)
+                w.writerow(["pwd", "prob"])
+                i: int = 0
+                rows: list = []
+                for pwd, prob in gen:
+                    rows.append((pwd, prob))
+                    if i % 100_000 == 0:
+                        w.writerows(rows)
+                        rows.clear()
+                    i += 1
+                if len(rows) != 0:
+                    w.writerows(rows)
+        # yield from cache file
+        with gzip.open(dataset_with_probs, "rt", compresslevel=3) as f:
+            r = csv.reader(f)
+            next(r, None)
+            for pwd, prob in r:
+                yield pwd, torch.scalar_tensor(float(prob))
+
+    def dataset_pwd_prob(
         self,
-    ) -> (
-        List[Tuple[str, torch.Tensor]] | Generator[Tuple[str, torch.Tensor], None, None]
-    ):
-        data_set_pwd_prob: List[Tuple[str, torch.Tensor]] = []
-        for pwd in self.data.test_passwords:
-            data_set_pwd_prob.append(
-                (
-                    pwd,
-                    torch.scalar_tensor(
-                        self.get_string_probability_from(pwd),
-                        dtype=torch.float64,
-                        device=self.device,
-                    ),
-                )
+    ) -> Generator[Tuple[str, float], None, None]:
+        """
+        This is the CORRECT, robust version.
+        It uses try...finally to guarantee temporary file cleanup
+        after the generator is exhausted.
+        """
+        import heapcy
+        from tempfile import NamedTemporaryFile
+        import os
+
+        temp_file_name: str | None = None
+        offsets: list[int] = []
+
+        try:
+            # 1. Create a temp file and get its name.
+            with NamedTemporaryFile(delete=False) as tmpfile:
+                temp_file_name = tmpfile.name
+
+            data_set_pwd_prob: heapcy.Heap = heapcy.Heap(
+                len(self.data.test_passwords) + 1
             )
-        data_set_pwd_prob.sort(key=lambda x: x[1], reverse=True)
-        return data_set_pwd_prob
+
+            # 3. Now, open the (closed) temp file by name for writing
+            with open(temp_file_name, "wb") as f_open:
+                for pwd in self.data.test_passwords:
+                    if not pwd:
+                        continue
+                    offset: int = f_open.tell()
+                    prob: float = float(self.get_string_probability_from(pwd))
+                    f_open.write(f"{pwd} {prob}\n".encode("ascii", errors="replace"))
+                    heapcy.heappush(data_set_pwd_prob, prob, offset)
+
+            # 4. Get sorted offsets
+            print("[I] - Getting sorted dataset")
+            n_items = len(data_set_pwd_prob)
+            for x in heapcy.nlargest(data_set_pwd_prob, n_items):
+                offsets.append(x[1])
+
+            del data_set_pwd_prob
+
+            # 5. YIELD from the generator
+            # This function pauses here. The 'finally' block
+            # will not run until the generator is exhausted.
+            print(f"[I] - Yielding from {temp_file_name}")
+            yield from heapcy.string_float_generator(temp_file_name, offsets)
+
+        finally:
+            # 6. CLEANUP
+            # This code runs *after* the generator is exhausted.
+            if temp_file_name and os.path.exists(temp_file_name):
+                print(f"[I] - Cleaning up temp file: {temp_file_name}")
+                os.remove(temp_file_name)
 
     def load(self, file_name):
         """
