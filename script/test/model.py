@@ -16,6 +16,7 @@ from script.utils.file_operations import redirect_stdout, redirect_stderr, write
 from script.utils.fast_eval import check_skip_generation, sub_sample, fast_eval
 from script.utils.memory_watcher import MemoryWatcher
 from script.config.config import read_config
+import gpu_selector
 
 
 def method_decorator(func: FunctionType):
@@ -118,7 +119,8 @@ class Model:
         print("-" * 40)
 
     def _setup_device(self):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #       self.device =  torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = gpu_selector.get_device()
         print(f"Selected device: {self.device}.")
 
     def _setup_checkpoint(self):
@@ -190,14 +192,43 @@ class Model:
             status = self.load(file_to_load)
 
         print("[I] - Checkpoint loaded successfully. Initiating Montecarlo Test.")
+        topk_file_path = os.path.join(
+            self.path_to_guesses_dir, "topk_guesses_str_float.gz"
+        )
+        if not os.path.exists(self.path_to_guesses_dir):
+            _create_and_clean_dir(self.path_to_guesses_dir)
+        eval_dict = self.eval_init(self.n_samples, 0)
+        if not os.path.exists(topk_file_path):
+            gen: Generator[Tuple[str, float], None, None] | Any = self.sample(
+                0, eval_dict
+            )
+            assert not isinstance(gen, List)
 
+            with gzip.open(topk_file_path, "wt") as f:
+                progress_bar = tqdm(range(self.n_samples))
+                progress_bar.set_description(desc="Writing to topk file")
+                check: int = 0
+                for i, (pwd, prob) in enumerate(gen):
+                    to_write = f"{pwd} {prob}\n"
+                    f.write(to_write)
+                    progress_bar.update(1)
+                    check = i
+                assert check + 1 == self.n_samples, (
+                    f"Check is != from n_samples:\n{check}:{self.n_samples}"
+                )
+            self.post_sampling(eval_dict)
+        my_gen: Generator[Tuple[str, torch.Tensor], None, None] = (
+            (get_generator_from_topk_file(topk_file_path, self.device))
+            if False
+            else self.dataset_pwd_generator()
+        )
         self.memory_watcher.reset()
         self.memory_watcher.start()
         eval_start = time.time()
 
         # self.get_string_probability_from("bestfriend")
-        # self.montecarlo_test()
-        self.montecarlo_test_slow()
+        self.montecarlo_test(eval_dict, my_gen)
+        # self.montecarlo_test_slow()
         eval_end = time.time()
         time_delta = timedelta(seconds=eval_end - eval_start)
         print(f"[T] - Montecarlo Test completed after: {time_delta}")
@@ -380,7 +411,6 @@ class Model:
 
         # C is first populated by for i in range(len(A))  C[i] = 1/A[i]
         C: torch.Tensor = torch.asarray(1 / A)
-        C = C.sort().values
         # C is then updated with for i in range(1,len(A))  C[i] = C[i-1]+ 1/A[i]
         C = torch.cumsum(input=C, dim=0, dtype=torch.float64)
 
@@ -469,7 +499,7 @@ class Model:
         # )
         A, _ = self._build_mc_curve(eval_dict)
 
-        mc_result_path = f"/tmp/mc_results_{self.n_samples}.csv"
+        mc_result_path = f"/tmp/mc_results_slow_{self.n_samples}.csv"
         with open(mc_result_path, "wt") as f:
             w = csv.writer(f)
             w.writerow(["pwd", "real_rank", "rank_hat", "prob"])
@@ -482,50 +512,30 @@ class Model:
 
                 rank_hat /= float(A.numel())
 
-                w.writerow((target_pwd, real_rank, rank_hat))
+                w.writerow((target_pwd, real_rank, rank_hat.item()))
 
-    def montecarlo_test(self):
-        eval_dict = self.eval_init(self.n_samples, 0)
-
-        topk_file_path = os.path.join(
-            self.path_to_guesses_dir, "topk_guesses_str_float.gz"
-        )
-
-        if not os.path.exists(topk_file_path):
-            gen: Generator[Tuple[str, float], None, None] | Any = self.sample(
-                0, eval_dict
-            )
-            assert not isinstance(gen, List)
-
-            with gzip.open(topk_file_path, "wt") as f:
-                progress_bar = tqdm(range(self.n_samples))
-                progress_bar.set_description(desc="Writing to topk file")
-                check: int = 0
-                for i, (pwd, prob) in enumerate(gen):
-                    to_write = f"{pwd} {prob}\n"
-                    f.write(to_write)
-                    progress_bar.update(1)
-                    check = i
-                assert check + 1 == self.n_samples, (
-                    f"Check is != from n_samples:\n{check}:{self.n_samples}"
-                )
-            self.post_sampling(eval_dict)
-
+    def montecarlo_test(
+        self, eval_dict: dict, gen: Generator[Tuple[str, torch.Tensor], None, None]
+    ):
         mc_result_path = f"/tmp/mc_results_{self.n_samples}.csv"
         A, C = self._build_mc_curve(eval_dict)
 
-        # multiply by -1 so that we can use the torch.searchsorted function properly
-        A = A.mul_(-1)
-        topk_gen: Iterable[Tuple[str, torch.Tensor]] = get_generator_from_topk_file(
-            topk_file_path, self.device
-        )
-
+        """ 
+            Searchsorted returns the index immediately left of that insertion point 
+            is the last existing element that compares as "less than" the insertion relation. 
+            Because we inverted with -A, using right=False ensures idx is the first position 
+            where -A >= -target (i.e., A <= target) so idx - 1 is the last position where A > target.
+        """
         with open(mc_result_path, "wt") as f:
             w = csv.writer(f)
             w.writerow(["pwd", "real_rank", "rank_hat", "prob"])
-            for i, (pwd, target) in enumerate(topk_gen):
-                idx = torch.searchsorted(A, -target, right=True)
-                r_hat = C[idx]
+            for i, (pwd, target) in enumerate(gen):
+                idx = torch.searchsorted(-A, -target, right=False) - 1
+                if idx < 0:
+                    r_hat = torch.scalar_tensor(0, device=A.device)
+                else:
+                    r_hat = C[idx]
+
                 w.writerow((pwd, i, r_hat.item(), target.item()))
 
     def _run_embedding(self):
@@ -579,6 +589,17 @@ class Model:
              - An object containing the required attributes and methods, which will be later accessible via self.data.
         """
         raise NotImplementedError("This method should be implemented in the subclass.")
+
+    def dataset_pwd_generator(self) -> Generator[Tuple[str, torch.Tensor], None, None]:
+        for pwd in self.data.test_passwords:
+            yield (
+                pwd,
+                torch.scalar_tensor(
+                    self.get_string_probability_from(pwd),
+                    dtype=torch.float64,
+                    device=self.device,
+                ),
+            )
 
     def load(self, file_name):
         """
@@ -830,7 +851,7 @@ def _create_and_clean_dir(path):
 
 def get_generator_from_topk_file(
     topk_file_path, device
-) -> Iterable[Tuple[str, torch.Tensor]]:
+) -> Generator[Tuple[str, torch.Tensor], None, None]:
     with gzip.open(topk_file_path, "rt") as f:
         while True:
             line: str = f.readline()
