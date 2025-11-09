@@ -119,8 +119,8 @@ class Model:
         print("-" * 40)
 
     def _setup_device(self):
-        #       self.device =  torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.device = gpu_selector.get_device()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device = gpu_selector.get_device()
         print(f"Selected device: {self.device}.")
 
     def _setup_checkpoint(self):
