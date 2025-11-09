@@ -217,7 +217,10 @@ class Model:
                     f"Check is != from n_samples:\n{check}:{self.n_samples}"
                 )
             self.post_sampling(eval_dict)
-        my_gen: Generator[Tuple[str, torch.Tensor], None, None] = (
+        my_iter: (
+            List[Tuple[str, torch.Tensor]]
+            | Generator[Tuple[str, torch.Tensor], None, None]
+        ) = (
             (get_generator_from_topk_file(topk_file_path, self.device))
             if False
             else self.dataset_pwd_generator()
@@ -227,7 +230,7 @@ class Model:
         eval_start = time.time()
 
         # self.get_string_probability_from("bestfriend")
-        self.montecarlo_test(eval_dict, my_gen)
+        self.montecarlo_test(eval_dict, my_iter)
         # self.montecarlo_test_slow()
         eval_end = time.time()
         time_delta = timedelta(seconds=eval_end - eval_start)
@@ -515,7 +518,7 @@ class Model:
                 w.writerow((target_pwd, real_rank, rank_hat.item()))
 
     def montecarlo_test(
-        self, eval_dict: dict, gen: Generator[Tuple[str, torch.Tensor], None, None]
+        self, eval_dict: dict, iter: Iterable[Tuple[str, torch.Tensor]]
     ):
         mc_result_path = f"/tmp/mc_results_{self.n_samples}.csv"
         A, C = self._build_mc_curve(eval_dict)
@@ -529,7 +532,7 @@ class Model:
         with open(mc_result_path, "wt") as f:
             w = csv.writer(f)
             w.writerow(["pwd", "real_rank", "rank_hat", "prob"])
-            for i, (pwd, target) in enumerate(gen):
+            for i, (pwd, target) in enumerate(iter):
                 idx = torch.searchsorted(-A, -target, right=False) - 1
                 if idx < 0:
                     r_hat = torch.scalar_tensor(0, device=A.device)
@@ -590,16 +593,25 @@ class Model:
         """
         raise NotImplementedError("This method should be implemented in the subclass.")
 
-    def dataset_pwd_generator(self) -> Generator[Tuple[str, torch.Tensor], None, None]:
+    def dataset_pwd_generator(
+        self,
+    ) -> (
+        List[Tuple[str, torch.Tensor]] | Generator[Tuple[str, torch.Tensor], None, None]
+    ):
+        data_set_pwd_prob: List[Tuple[str, torch.Tensor]] = []
         for pwd in self.data.test_passwords:
-            yield (
-                pwd,
-                torch.scalar_tensor(
-                    self.get_string_probability_from(pwd),
-                    dtype=torch.float64,
-                    device=self.device,
-                ),
+            data_set_pwd_prob.append(
+                (
+                    pwd,
+                    torch.scalar_tensor(
+                        self.get_string_probability_from(pwd),
+                        dtype=torch.float64,
+                        device=self.device,
+                    ),
+                )
             )
+        data_set_pwd_prob.sort(key=lambda x: x[1], reverse=True)
+        return data_set_pwd_prob
 
     def load(self, file_name):
         """
