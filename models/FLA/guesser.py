@@ -320,7 +320,7 @@ class Guesser:
         END = self.pwd_end_idx
 
         prefixes = [""] * n
-        logprob = torch.zeros(n, device=device, dtype=torch.float32)
+        logprob = torch.zeros(n, device=device, dtype=torch.float64)
         # prob = torch.zeros(n, device=device, dtype=torch.float64)
         is_finished = torch.zeros(n, device=device, dtype=torch.bool)
 
@@ -363,8 +363,7 @@ class Guesser:
                 # Renormalize per row; if a row has no mass, fall back to END-only
                 row_sums = probs.sum(dim=1, keepdim=True)
 
-                for i in range(len(probs)):
-                    probs[i] /= row_sums[i]
+                probs /= row_sums
                 # 1. Get the row sums. This is a vector of shape [k].
                 row_sums = probs.sum(dim=1)
 
@@ -407,7 +406,7 @@ class Guesser:
                         prefixes[i] += chars[idx]
 
         # Convert to probabilities and yield EXACTLY n samples (all valid by construction)
-        p_cpu = logprob.to(dtype=torch.float64).exp().cpu()
+        p_cpu = logprob.exp().cpu()
         # p_cpu = prob.cpu()
         for i in range(n):
             # Safety: should always hold because we only allow END when valid
