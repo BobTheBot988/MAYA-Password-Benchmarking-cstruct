@@ -1,5 +1,5 @@
 import os
-from typing import Generator, Any, Dict, Optional
+from typing import Generator, Any, Dict
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -9,12 +9,11 @@ import tempfile
 import shutil
 import heapcy
 
-from models.FLA import guesser
 from script.test.model import Model
 
 from models.FLA.architecture import LSTM
 from models.FLA.guesser import Guesser
-from models.FLA.fla_utils.dataloader import *
+from models.FLA.fla_utils.dataloader import DataLoader
 
 
 def get_lower_probability_threshold(n_samples):
@@ -126,8 +125,8 @@ class FLA(Model):
 
             n_iter = 0
             for batch in self.data.get_batches(batch_size):
-                x_train = np.array(batch[0])
-                y_train = np.array(batch[1])
+                x_train = torch.asarray(batch[0], device=self.device)
+                y_train = torch.asarray(batch[1], device=self.device)
 
                 x_train = torch.tensor(x_train, dtype=torch.float32).to(self.device)
                 y_train = torch.tensor(y_train, dtype=torch.float32).to(self.device)
