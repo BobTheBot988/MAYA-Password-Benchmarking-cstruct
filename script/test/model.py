@@ -199,7 +199,7 @@ class Model:
         if not os.path.exists(self.path_to_guesses_dir):
             _create_and_clean_dir(self.path_to_guesses_dir)
         eval_dict = self.eval_init(self.n_samples, 0)
-        if not os.path.exists(topk_file_path):
+        if False and not os.path.exists(topk_file_path):
             gen: Generator[Tuple[str, float], None, None] | Any = self.sample(
                 0, eval_dict
             )
@@ -230,7 +230,7 @@ class Model:
         self.memory_watcher.start()
         eval_start = time.time()
 
-        # self.get_string_probability_from("bestfriend")
+        # val: float = self.get_string_probability_from("bestfriend")
         self.montecarlo_test(eval_dict, my_iter)
         # self.montecarlo_test_slow()
         eval_end = time.time()
@@ -414,7 +414,7 @@ class Model:
         A = A.sort(descending=True).values
 
         # C is first populated by for i in range(len(A))  C[i] = 1/A[i]
-        C: torch.Tensor = torch.asarray(1 / A)
+        C: torch.Tensor = torch.asarray(1 / A).to(device=A.device)
         # C is then updated with for i in range(1,len(A))  C[i] = C[i-1]+ 1/A[i]
         C = torch.cumsum(input=C, dim=0, dtype=torch.float64)
 
@@ -450,8 +450,8 @@ class Model:
 
         elif os.path.exists(A_torch_path) and os.path.exists(C_torch_path):
             # load from .pt files so that it's faster to load
-            A: torch.Tensor = torch.load(A_torch_path, device=self.device)
-            C: torch.Tensor = torch.load(C_torch_path, device=self.device)
+            A: torch.Tensor = torch.load(A_torch_path).to(device=self.device)
+            C: torch.Tensor = torch.load(C_torch_path).to(device=self.device)
 
         else:
             # read from mc_file then write to .pt files
@@ -521,7 +521,9 @@ class Model:
     def montecarlo_test(
         self, eval_dict: dict, iter: Iterable[Tuple[str, torch.Tensor]]
     ):
-        mc_result_path = f"/tmp/mc_results_{self.n_samples}.csv"
+        mc_result_path = os.path.join(
+            self.path_to_guesses_dir, f"mc_results_{self.n_samples}.csv"
+        )
         A, C = self._build_mc_curve(eval_dict)
 
         """ 
@@ -533,14 +535,21 @@ class Model:
         with open(mc_result_path, "wt") as f:
             w = csv.writer(f)
             w.writerow(["pwd", "real_rank", "rank_hat", "prob"])
+            lis = []
             for i, (pwd, target) in enumerate(iter):
+                target = target.to(device=A.device)
                 idx = torch.searchsorted(-A, -target, right=False) - 1
                 if idx < 0:
                     r_hat = torch.scalar_tensor(0, device=A.device)
                 else:
                     r_hat = C[idx]
+                lis.append((pwd, i, r_hat.item(), target.item()))
+                if i % 10_000:
+                    w.writerows(lis)
+                    lis.clear()
 
-                w.writerow((pwd, i, r_hat.item(), target.item()))
+            if len(lis) != 0:
+                w.writerows(lis)
 
     def _run_embedding(self):
         if self.settings["data_to_embed"]:
@@ -594,9 +603,10 @@ class Model:
         """
         raise NotImplementedError("This method should be implemented in the subclass.")
 
+    @method_decorator
     def get_generator_dataset(self) -> Generator[Tuple[str, torch.Tensor], None, None]:
         dataset_with_probs = os.path.join(
-            self.path_to_guesses_dir, "test_dataset.csv.gz"
+            self.path_to_checkpoint_dir, "test_dataset.csv.gz"
         )
         # Create the cache file
         if not os.path.exists(dataset_with_probs):
@@ -606,12 +616,13 @@ class Model:
                 w.writerow(["pwd", "prob"])
                 i: int = 0
                 rows: list = []
-                for pwd, prob in gen:
+                for i, (pwd, prob) in enumerate(gen):
                     rows.append((pwd, prob))
                     if i % 100_000 == 0:
+                        print(f"[I] - Completed {i / len(self.data.test_passwords)}%")
                         w.writerows(rows)
                         rows.clear()
-                    i += 1
+
                 if len(rows) != 0:
                     w.writerows(rows)
         # yield from cache file
@@ -621,11 +632,11 @@ class Model:
             for pwd, prob in r:
                 yield pwd, torch.scalar_tensor(float(prob))
 
+    @method_decorator
     def dataset_pwd_prob(
         self,
     ) -> Generator[Tuple[str, float], None, None]:
         """
-        This is the CORRECT, robust version.
         It uses try...finally to guarantee temporary file cleanup
         after the generator is exhausted.
         """
