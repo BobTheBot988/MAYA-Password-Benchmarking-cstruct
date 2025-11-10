@@ -99,6 +99,8 @@ class Guesser:
             self.relevel_prediction(pred_item[0], str_list[i])
 
     def relevel_prediction_many_log(self, pred_list, str_list):
+        if self.pwd_is_valid(str_list[0]) and len(str_list[0]) != self.max_len:
+            return
         for i, pred_item in enumerate(pred_list):
             # pred_item[0] is the log-prob distribution for the i-th string
             self.relevel_prediction_log(pred_item[0], str_list[i])
@@ -127,6 +129,7 @@ class Guesser:
         Calculates the full probability of a single password string
         using the chain rule: P(c1, c2, ..., cn) = P(c1) * P(c2|c1) * ...
         """
+        log = False
         tokenizer = self.data.tokenizer
         end_token = tokenizer.PASSWORD_END
 
@@ -142,15 +145,17 @@ class Guesser:
         # This calls encode_many(prefixes), which is what we want.
         # The model will predict P(next_char | prefix) for each prefix.
         # Shape of prob_dists_batch should be (len(prefixes), 1, vocab_size)
-        prob_dists_batch = self.conditional_probs_many(prefixes, log=True)
+        prob_dists_batch = self.conditional_probs_many(prefixes, log=log)
 
         # Squeeze out the middle dimension (1) to get (batch_size, vocab_size)
         prob_dists_batch = prob_dists_batch.squeeze(dim=1).to(device=self.device)
 
-        # total_probability = 1.0
-        total_log_probability = torch.scalar_tensor(
-            0.0, dtype=float64, device=self.device
+        total_probability = torch.scalar_tensor(
+            0.0 if log else 1.0, dtype=float64, device=self.device
         )
+        # total_log_probability = torch.scalar_tensor(
+        #     0.0, dtype=float64, device=self.device
+        # )
 
         # 4. Loop through each step, find the probability, and multiply
         for i, target_char in enumerate(targets):
@@ -159,22 +164,20 @@ class Guesser:
             dist = prob_dists_batch[i]
 
             # Get the index of the character we *actually* observed
-            try:
-                target_index = tokenizer.get_char_index(target_char)
-            except KeyError:
-                print(f"Error: Character '{target_char}' not in tokenizer vocabulary.")
-                return 0.0  # This string is impossible according to the model
+            target_index = tokenizer.get_char_index(target_char)
 
             # Get the specific probability of that target character
-            # prob_of_char = dist[target_index]
-            log_prob_of_char = dist[target_index]
+            # and multiply it into our total
+            if not log:
+                prob_of_char = dist[target_index]
+                total_probability *= prob_of_char
+            else:
+                log_prob_of_char = dist[target_index]
+                total_probability += log_prob_of_char
 
-            # 5. Multiply it into our total
-            # total_probability *= prob_of_char
-            total_log_probability += log_prob_of_char
-        total_probability = torch.exp(total_log_probability)
+        total_probability = torch.exp(total_probability) if log else total_probability
 
-        assert 0.0 < total_probability < 1.0, (
+        assert 0.0 <= total_probability < 1.0, (
             f"The probability is wrong:{total_probability}"
         )
         return total_probability.item()
@@ -271,7 +274,7 @@ class Guesser:
     def one_batch_to_control_them_all(
         self, n: int, write_csv: bool = False, path: Optional[str] = None
     ) -> None:
-        BATCH_SIZE = 2048
+        BATCH_SIZE = 16384
         TOTAL = n
         num_batches = math.ceil(TOTAL / BATCH_SIZE)
 
